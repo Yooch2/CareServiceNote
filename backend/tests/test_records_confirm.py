@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.main import app
 from app.models import VisitRecord
-from tests.helpers import add_recipient, put_audio, set_draft, signup
+from tests.helpers import add_recipient, process_all, put_audio, set_draft, signup
 
 DRAFT = {
     "items": [
@@ -100,3 +100,19 @@ def test_confirm_blocked_while_processing_or_by_others(client: TestClient, db: S
     with TestClient(app) as other:
         signup(other, login_id="carer99")
         assert other.post(f"/records/{record_id}/confirm", json=body).status_code == 404
+
+
+def test_end_to_end_with_fake_ai(client: TestClient) -> None:
+    record_id = _uploaded(client)
+    process_all()
+    record = client.get(f"/records/{record_id}").json()
+    assert record["status"] == "draft_ready"
+    keys = ("category", "content", "evidence", "speaker_uncertain", "risk_tag")
+    items = [
+        {k: item[k] for k in keys} | {"draft_index": i}
+        for i, item in enumerate(record["draft"]["items"])
+    ]
+
+    res = client.post(f"/records/{record_id}/confirm", json={"items": items})
+    assert res.status_code == 200
+    assert {i["origin"] for i in res.json()["items"]} == {"ai"}
