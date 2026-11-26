@@ -1,0 +1,8 @@
+{
+  "include": ["backend"],
+  "exclude": ["**/.venv", "**/node_modules"],
+  "venvPath": "backend",
+  "venv": ".venv",
+  "pythonVersion": "3.12",
+  "executionEnvironments": [{ "root": "backend" }]
+}
