@@ -12,6 +12,7 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+import app.models  # noqa: E402, F401  (메타데이터에 테이블 등록)
 from app.config import settings  # noqa: E402
 from app.db import Base  # noqa: E402
 
