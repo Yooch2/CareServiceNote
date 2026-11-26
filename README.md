@@ -35,10 +35,15 @@ docker compose up -d --wait
 
 # Backend (http://localhost:8000/docs)
 cd backend
-cp .env.example .env
+cp .env.example .env          # JWT_SECRET을 임의 문자열로 바꾸기
 uv sync
 uv run alembic upgrade head
+uv run python -m app.seed     # 데모 계정(demo / demo1234)과 가상 수급자
 uv run uvicorn app.main:app --reload
+
+# AI 처리 워커 (다른 터미널)
+cd backend
+uv run python -m app.worker
 
 # Frontend (http://localhost:3100)
 cd frontend
@@ -46,13 +51,24 @@ pnpm install
 pnpm dev
 ```
 
+### AI 처리 방식 (`AI_PROVIDER`)
+
+| 값 | 전사 | 분류 | 준비 |
+|---|---|---|---|
+| `fake` | 고정 가상 전사문 | 고정 분류 결과 | 없음 (기본값) |
+| `local` | mlx-whisper | Ollama | macOS, `uv sync --group local`, `ollama pull qwen2.5:7b` |
+| `gemini` | Gemini | Gemini | Google AI Studio 무료 등급 키를 `GEMINI_API_KEY`에 |
+
 ## 테스트
 
 ```bash
-cd backend && uv run pytest
+cd backend && uv run pytest              # 테스트 DB(csn_test) 자동 생성
+cd backend && uv run pytest -m live -s   # 실제 AI 모델 호출 (수동)
 cd frontend && pnpm lint
 ```
 
 ## 개인정보 원칙
 
 이 저장소의 모든 수급자·기록 데이터는 가상으로 만든 것입니다. 실제 건강정보는 사용하지 않습니다.
+
+데모의 Gemini 연동은 무료 등급을 사용합니다. 무료 등급은 입력 데이터가 서비스 개선에 쓰일 수 있으므로 가상 데이터만 넣으며, 실제 기록을 다룬다면 데이터 학습에 쓰이지 않는 유료 등급으로 바꿔야 합니다.
