@@ -20,8 +20,13 @@ def build_draft(transcript: Transcript, classification: Classification) -> dict[
         joined += _norm(seg.text)
 
     items: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
     for item in classification.items:
         evidence = _norm(item.evidence)
+        key = (item.category, _norm(item.content), evidence)
+        if key in seen:  # 작은 모델이 같은 항목을 두 번 내는 경우
+            continue
+        seen.add(key)
         segment_index: int | None = None
         if evidence and starts:
             pos = joined.find(evidence)
@@ -35,5 +40,10 @@ def build_draft(transcript: Transcript, classification: Classification) -> dict[
             }
         )
 
-    mentioned = set(classification.mentioned_topics)
+    # 근거 구절이 전사문에 실제로 있는 주제만 '언급됨'으로 본다
+    mentioned = {
+        m.topic
+        for m in classification.mentioned_topics
+        if _norm(m.evidence) and _norm(m.evidence) in full
+    }
     return {"items": items, "missing_topics": [t for t in TOPICS if t not in mentioned]}

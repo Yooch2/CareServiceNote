@@ -10,7 +10,7 @@ CLASSIFY_SYSTEM = """너는 방문요양 기록 정리를 돕는다. 요양보�
 2. evidence에는 근거가 된 전사문 구절을 한 글자도 바꾸지 말고 그대로 옮긴다.
 3. 낙상, 투약, 통증과 관련된 항목은 risk_tag를 fall, medication, pain 중 하나로 표시한다. 위험한지 판단하거나 조언하지 않는다. 관련이 없으면 null.
 4. 누가 한 말인지 분명하지 않으면 speaker_uncertain을 true로 한다.
-5. mentioned_topics에는 전사문에서 실제로 언급된 주제만 넣는다: meal(식사), toileting(배변), sleep(수면), mood(기분).
+5. mentioned_topics에는 전사문에서 실제로 언급된 주제만 넣고, evidence에 그 주제가 나온 전사문 구절을 그대로 옮긴다. 주제: meal(식사), toileting(배변), sleep(수면), mood(기분). 언급이 없는 주제는 넣지 않는다.
 6. 지정된 JSON 형식으로만 답한다."""  # noqa: E501
 
 TRANSCRIBE_PROMPT = """이 음성은 방문요양 요양보호사가 방문 직후 남긴 한국어 기록이다.

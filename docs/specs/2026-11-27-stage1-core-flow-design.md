@@ -190,7 +190,9 @@ class Classifier(Protocol):
 ### 후처리 (공통 함수 하나)
 - 근거 대조: 공백을 정규화한 뒤 전사문에 근거 구절이 그대로 있는지 확인해 `evidence_found` 설정. 항목을 지우지는 않는다
 - `segment_index`: 근거 구절이 시작되는 구간
-- `missing_topics`: 고정 목록(`meal`, `toileting`, `sleep`, `mood`)에서 LLM이 고른 `mentioned_topics`를 뺀 값
+- `missing_topics`: 고정 목록(`meal`, `toileting`, `sleep`, `mood`)에서 '언급된 주제'를 뺀 값. LLM은 주제마다 근거 구절을 함께 내고(`mentioned_topics: [{topic, evidence}]`), 근거가 전사문에 실제로 있는 주제만 언급된 것으로 본다
+- 중복 합치기: 분류·내용·근거 구절(공백 정규화)이 모두 같은 항목은 하나만 남긴다
+- (2026-11-27 로컬 모델 실행 결과로 추가) qwen2.5:7b가 언급되지 않은 배변·기분을 '언급됨'으로 답해 빠진 주제 안내가 사라지고, 같은 항목을 두 번 내는 문제가 있었음
 
 ### 프롬프트 규칙
 - 녹음에 없는 내용은 만들지 않는다. 해당 분류에 내용이 없으면 비워 둔다

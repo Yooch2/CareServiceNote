@@ -1,7 +1,8 @@
+from collections.abc import Sequence
 from pathlib import Path
 
 from app.ai.errors import AIError
-from app.ai.types import Classification, DraftItem, Segment, Transcript
+from app.ai.types import Classification, DraftItem, Segment, TopicMention, Transcript
 
 FAKE_TRANSCRIPT = Transcript(
     text=(
@@ -50,15 +51,15 @@ FAKE_CLASSIFICATION = Classification(
             risk_tag=None,
         ),
     ],
-    mentioned_topics=["meal"],
+    mentioned_topics=[TopicMention(topic="meal", evidence="점심은 반 정도 드셨습니다")],
 )
 
 
 class FakeTranscriber:
     """고정된 가상 전사문을 돌려준다. failures에 넣은 오류를 앞에서부터 한 번씩 먼저 던진다."""
 
-    def __init__(self, failures: list[AIError] | None = None) -> None:
-        self.failures = list(failures or [])
+    def __init__(self, failures: Sequence[AIError] = ()) -> None:
+        self.failures = list(failures)
         self.calls = 0
 
     def transcribe(self, audio: Path) -> Transcript:
@@ -69,8 +70,8 @@ class FakeTranscriber:
 
 
 class FakeClassifier:
-    def __init__(self, failures: list[AIError] | None = None) -> None:
-        self.failures = list(failures or [])
+    def __init__(self, failures: Sequence[AIError] = ()) -> None:
+        self.failures = list(failures)
         self.calls = 0
 
     def classify(self, transcript: Transcript) -> Classification:

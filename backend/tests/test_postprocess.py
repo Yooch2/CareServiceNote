@@ -1,5 +1,5 @@
 from app.ai.postprocess import build_draft
-from app.ai.types import Classification, DraftItem, Segment, Transcript
+from app.ai.types import Classification, DraftItem, Segment, TopicMention, Transcript
 
 TRANSCRIPT = Transcript(
     text="오늘 어르신이   무릎이 아프다고 하셨어요.\n점심은 반 정도 드셨습니다.",
@@ -52,6 +52,26 @@ def test_no_segments_gives_no_index() -> None:
 
 
 def test_missing_topics_in_fixed_order() -> None:
-    draft = build_draft(TRANSCRIPT, Classification(items=[], mentioned_topics=["mood", "meal"]))
+    mentions = [
+        TopicMention(topic="mood", evidence="무릎이 아프다고"),
+        TopicMention(topic="meal", evidence="점심은 반 정도"),
+    ]
+    draft = build_draft(TRANSCRIPT, Classification(items=[], mentioned_topics=mentions))
     assert draft["missing_topics"] == ["toileting", "sleep"]
     assert draft["items"] == []
+
+
+def test_topic_without_real_evidence_still_counts_as_missing() -> None:
+    mentions = [
+        TopicMention(topic="meal", evidence="점심은 반 정도"),
+        TopicMention(topic="toileting", evidence="화장실 다녀오셨어요"),
+        TopicMention(topic="mood", evidence=""),
+    ]
+    draft = build_draft(TRANSCRIPT, Classification(items=[], mentioned_topics=mentions))
+    assert draft["missing_topics"] == ["toileting", "sleep", "mood"]
+
+
+def test_duplicate_items_are_merged() -> None:
+    items = [_item("반 정도 드셨"), _item("반 정도  드셨"), _item("반 정도 드셨", "observation")]
+    draft = build_draft(TRANSCRIPT, Classification(items=items, mentioned_topics=[]))
+    assert [i["category"] for i in draft["items"]] == ["remark", "observation"]

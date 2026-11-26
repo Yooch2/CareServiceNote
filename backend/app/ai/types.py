@@ -32,9 +32,14 @@ class DraftItem(BaseModel):
     risk_tag: RiskTag | None
 
 
+class TopicMention(BaseModel):
+    topic: Topic
+    evidence: str
+
+
 class Classification(BaseModel):
     items: list[DraftItem]
-    mentioned_topics: list[Topic]
+    mentioned_topics: list[TopicMention]
 
 
 class Transcriber(Protocol):
