@@ -6,8 +6,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.routers import auth
 
 app = FastAPI(title="CareServiceNote API", version="0.1.0")
+app.include_router(auth.router)
 
 
 @app.get("/health")
