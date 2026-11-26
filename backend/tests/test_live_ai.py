@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from app.ai.gemini import GeminiAI
 from app.ai.local import LocalTranscriber, OllamaClassifier
 from app.ai.postprocess import build_draft
 from app.config import settings
@@ -42,3 +43,14 @@ def test_local_pipeline(sample_audio: Path) -> None:
     print(draft)
     assert draft["items"]
     assert "meal" not in draft["missing_topics"]
+
+
+def test_gemini_pipeline(sample_audio: Path) -> None:
+    if not settings.gemini_api_key:
+        pytest.skip("GEMINI_API_KEY가 없습니다")
+    ai = GeminiAI(settings.gemini_api_key, settings.gemini_model)
+    transcript = ai.transcribe(sample_audio)
+    assert "무릎" in transcript.text
+    draft = build_draft(transcript, ai.classify(transcript))
+    print(draft)
+    assert draft["items"]
