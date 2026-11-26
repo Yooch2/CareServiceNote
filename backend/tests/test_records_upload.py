@@ -1,5 +1,6 @@
 import uuid
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -105,3 +106,43 @@ def test_record_visibility(client: TestClient, other_client: TestClient, db: Ses
     assert [(s["id"], s["is_mine"]) for s in summaries] == [(record_id, False)]
     mine = client.get(f"/recipients/{rid}/records").json()
     assert mine[0]["is_mine"] is True
+
+
+def test_oversized_body_rejected_before_parsing(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    signup(client)
+    rid = add_recipient(client)["id"]
+    monkeypatch.setattr(settings, "max_audio_bytes", 5)
+    record_id = str(uuid.uuid4())
+    res = put_audio(client, record_id, rid, content=b"x" * 200_000)
+    assert res.status_code == 413
+    assert res.json()["detail"] == "요청 본문이 너무 큽니다"
+    assert list(settings.audio_dir.glob(f"{record_id}*")) == []
+
+
+def test_chunked_upload_without_length_rejected(client: TestClient) -> None:
+    signup(client)
+    res = client.put(
+        f"/records/{uuid.uuid4()}",
+        content=iter([b"--x\r\n"]),
+        headers={"content-type": "multipart/form-data; boundary=x"},
+    )
+    assert res.status_code == 411
+
+
+def test_daily_limit_holds_under_concurrency(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    signup(client)
+    rid = add_recipient(client)["id"]
+    monkeypatch.setattr(settings, "daily_records_per_user", 1)
+    cookies = dict(client.cookies)
+
+    def upload(_: int) -> int:
+        with TestClient(app, cookies=cookies) as c:
+            return put_audio(c, str(uuid.uuid4()), rid).status_code
+
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        codes = sorted(pool.map(upload, range(5)))
+    assert codes == [201, 429, 429, 429, 429]

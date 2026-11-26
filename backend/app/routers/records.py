@@ -20,6 +20,7 @@ from app.schemas import RecordOut
 router = APIRouter(prefix="/records", tags=["records"])
 
 _NOT_FOUND = "기록을 찾을 수 없습니다"
+_UPLOAD_LOCK_KEY = 7_301_001  # 업로드 한도 확인용 advisory lock 번호
 
 
 def load_own_record(
@@ -74,7 +75,6 @@ def put_record(
     if ext is None:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "지원하지 않는 음성 형식입니다")
     get_recipient_or_404(db, recipient_id)
-    _check_daily_limits(db, user)
 
     try:
         path = audio_store.save(record_id, audio.file, ext)
@@ -82,6 +82,17 @@ def put_record(
         raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "음성 파일이 너무 큽니다") from None
     except audio_store.AudioEmpty:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "빈 음성 파일입니다") from None
+
+    # 한도 확인과 저장을 한 번에: 잠금은 커밋·롤백 때 풀린다
+    # ponytail: 업로드 전체를 잠그는 전역 잠금.
+    # 동시 업로드가 많아지면 사용자별 잠금 + 전체 카운터 행으로 바꾼다.
+    try:
+        db.execute(select(func.pg_advisory_xact_lock(_UPLOAD_LOCK_KEY)))
+        _check_daily_limits(db, user)
+    except HTTPException:
+        db.rollback()
+        audio_store.delete(str(path))
+        raise
 
     record = VisitRecord(
         id=record_id,
