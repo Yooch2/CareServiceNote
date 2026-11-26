@@ -1,6 +1,10 @@
+import uuid
 from typing import Any
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+
+from app.models import VisitRecord
 
 
 def signup(
@@ -40,3 +44,13 @@ def put_audio(
         },
         files={"audio": ("rec", content, content_type)},
     )
+
+
+def set_draft(
+    db: Session, record_id: str, draft: dict[str, Any] | None, status: str = "draft_ready"
+) -> None:
+    record = db.get(VisitRecord, uuid.UUID(record_id))
+    assert record is not None
+    record.draft = draft
+    record.status = status
+    db.commit()

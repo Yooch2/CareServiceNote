@@ -79,3 +79,20 @@ class RecordSummaryOut(BaseModel):
     status: str
     is_mine: bool
     created_at: datetime
+
+
+LongText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)]
+
+
+class ConfirmItemIn(BaseModel):
+    draft_index: int | None = Field(default=None, ge=0)
+    category: Category
+    content: LongText
+    evidence: str | None = Field(default=None, max_length=1000)
+    speaker_uncertain: bool = False
+    risk_tag: RiskTag | None = None
+
+
+class ConfirmIn(BaseModel):
+    items: list[ConfirmItemIn] = Field(min_length=1, max_length=50)
+    dismissed_draft_indexes: list[int] = Field(default_factory=list)

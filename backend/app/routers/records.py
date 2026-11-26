@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
 
@@ -12,10 +12,11 @@ from sqlalchemy.orm import Session
 
 from app import audio_store
 from app.config import settings
+from app.confirm import ConfirmError, build_confirmed_items
 from app.deps import CurrentUser, DbSession
-from app.models import User, VisitRecord
+from app.models import RecordItem, User, VisitRecord
 from app.routers.recipients import get_recipient_or_404
-from app.schemas import RecordOut
+from app.schemas import ConfirmIn, RecordOut
 
 router = APIRouter(prefix="/records", tags=["records"])
 
@@ -135,3 +136,26 @@ def get_audio(record_id: uuid.UUID, user: CurrentUser, db: DbSession) -> FileRes
     path = Path(record.audio_path)
     media_type = audio_store.MEDIA_TYPES.get(path.suffix, "application/octet-stream")
     return FileResponse(path, media_type=media_type)
+
+
+@router.post("/{record_id}/confirm", response_model=RecordOut)
+def confirm_record(
+    record_id: uuid.UUID, body: ConfirmIn, user: CurrentUser, db: DbSession
+) -> VisitRecord:
+    record = load_own_record(db, record_id, user, for_update=True)
+    if record.status not in ("draft_ready", "failed"):
+        raise HTTPException(status.HTTP_409_CONFLICT, "지금은 확정할 수 없는 상태입니다")
+    draft_items = (record.draft or {}).get("items", [])
+    try:
+        values = build_confirmed_items(draft_items, body)
+    except ConfirmError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from None
+
+    old_audio = record.audio_path
+    record.items = [RecordItem(**v) for v in values]
+    record.status = "confirmed"
+    record.confirmed_at = datetime.now(UTC)
+    record.audio_path = None
+    db.commit()
+    audio_store.delete(old_audio)
+    return record
