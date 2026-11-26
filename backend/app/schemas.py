@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
@@ -26,3 +27,15 @@ class UserOut(BaseModel):
     id: uuid.UUID
     login_id: str
     display_name: str
+
+
+class RecipientIn(BaseModel):
+    name: ShortName
+
+
+class RecipientOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    created_at: datetime

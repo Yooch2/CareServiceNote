@@ -15,3 +15,9 @@ def signup(
     )
     assert res.status_code == 201, res.text
     return res.json()
+
+
+def add_recipient(client: TestClient, name: str = "가상수급자") -> dict[str, Any]:
+    res = client.post("/recipients", json={"name": name})
+    assert res.status_code == 201, res.text
+    return res.json()
