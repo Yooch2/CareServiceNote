@@ -364,13 +364,26 @@ class GuardianCheckOut(BaseModel):
 
 class GuardianVisitOut(BaseModel):
     visited_on: date
+    summary: list[str]  # 승인된 하루 요약 중 열람 범위 안의 문장
     items: list[GuardianItemOut]
     checks: list[GuardianCheckOut]
+
+
+class GuardianSessionOut(BaseModel):
+    started_at: datetime
+    ended_at: datetime | None
+
+
+class GuardianNoticeOut(BaseModel):
+    message: str
+    shared_at: datetime
 
 
 class GuardianHomeOut(BaseModel):
     recipient_name: str
     categories: list[Category]
+    sessions: list[GuardianSessionOut]
+    notices: list[GuardianNoticeOut]
     records: list[GuardianVisitOut]
 
 
@@ -416,6 +429,8 @@ class ConcernIn(BaseModel):
 class ResolveIn(BaseModel):
     resolution: Literal["acted", "false_alarm"]
     note: str | None = Field(default=None, max_length=500)
+    # 보호자에게 보낼 안내문 (선택). 알림 근거·우려 원문은 보내지 않는다
+    guardian_message: str | None = Field(default=None, max_length=500)
 
 
 class TrendPointOut(BaseModel):
@@ -423,3 +438,53 @@ class TrendPointOut(BaseModel):
     visited_on: date
     meal_level: int | None
     mood: Mood | None
+
+
+# --- 5단계: 보호자 하루 요약 · 방문 시작/종료 · 업무 메시지 ---
+
+
+class GuardianSummarySentenceOut(BaseModel):
+    text: str
+    item_ids: list[uuid.UUID]
+    categories: list[Category]  # 근거 항목의 분류 (보호자 열람 범위로 거를 때 쓰는 값)
+    edited: bool
+
+
+class GuardianSummaryOut(BaseModel):
+    status: Literal["draft", "approved"]
+    sentences: list[GuardianSummarySentenceOut]
+    created_at: datetime
+    updated_at: datetime
+    approved_at: datetime | None
+    approver_name: str | None
+
+
+class SentenceEdit(BaseModel):
+    text: Annotated[str, StringConstraints(strip_whitespace=True, max_length=300)]
+
+
+class GuardianSummaryEdit(BaseModel):
+    """같은 순서로 문장을 고친다. 빈 문장은 지운다. 근거는 바꿀 수 없다."""
+
+    sentences: list[SentenceEdit] = Field(max_length=10)
+
+
+class VisitSessionOut(BaseModel):
+    id: uuid.UUID
+    caregiver_id: uuid.UUID
+    caregiver_name: str
+    started_at: datetime
+    ended_at: datetime | None
+
+
+class MessageIn(BaseModel):
+    body: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+
+
+class MessageOut(BaseModel):
+    id: uuid.UUID
+    author_id: uuid.UUID
+    author_name: str
+    author_role: Role
+    body: str
+    created_at: datetime

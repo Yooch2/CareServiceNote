@@ -2,13 +2,14 @@ import shutil
 import subprocess
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from app.ai.gemini import GeminiAI
 from app.ai.local import LocalTranscriber, OllamaClassifier
 from app.ai.postprocess import build_draft
-from app.ai.summary import clean_summary, summarize
+from app.ai.summary import clean_summary, summarize, summarize_for_guardian
 from app.ai.types import OpenFollowup
 from app.config import settings
 
@@ -124,3 +125,33 @@ def test_local_followups(second_audio: Path) -> None:
         settings.ollama_url, settings.ollama_model, settings.ollama_num_ctx
     )
     _check_followups(build_draft(transcript, classifier.classify(transcript, FOLLOWUPS), REFS))
+
+
+GUARDIAN_LINES = [
+    "I1. [말씀] 오른쪽 무릎이 좀 불편하다",
+    "I2. [말씀] 날 좋으면 산책 나가고 싶다",
+    "I3. [관찰] 점심을 반 정도 드심",
+    "I4. [다음 확인] 무릎 상태와 산책 의향 다시 확인",
+]
+
+
+def _check_guardian_summary(llm: Any) -> None:
+    refs = {f"I{n}": n for n in range(1, 5)}
+    out = summarize_for_guardian(llm, GUARDIAN_LINES)
+    print(out)
+    cleaned = clean_summary(out, refs, limit=3)
+    assert cleaned and len(cleaned) == len(out.sentences[:3]), "모든 문장에 실제 근거가 있어야 한다"
+    text = " ".join(t for t, _ in cleaned)
+    assert "진단" not in text and "병원" not in text, "목록에 없는 조언을 하지 않아야 한다"
+
+
+def test_gemini_guardian_summary() -> None:
+    if not settings.gemini_api_key:
+        pytest.skip("GEMINI_API_KEY가 없습니다")
+    _check_guardian_summary(GeminiAI(settings.gemini_api_key, settings.gemini_model))
+
+
+def test_local_guardian_summary() -> None:
+    _check_guardian_summary(
+        OllamaClassifier(settings.ollama_url, settings.ollama_model, settings.ollama_num_ctx)
+    )

@@ -433,3 +433,70 @@ class Alert(Base):
     resolution_note: Mapped[str | None] = mapped_column(Text)
     resolved_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 처리 결과를 보호자에게 알릴 때 담당자가 따로 쓴 안내문 (알림 원문은 보내지 않는다)
+    guardian_message: Mapped[str | None] = mapped_column(Text)
+    shared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class GuardianSummary(Base):
+    """보호자 하루 요약. 방문당 하나, 기관 담당자가 승인해야 보호자에게 보인다.
+
+    sentences: [{text, item_ids, edited}]. 보호자별 열람 범위는 문장의 근거 항목으로 거른다.
+    """
+
+    __tablename__ = "guardian_summaries"
+    __table_args__ = (
+        CheckConstraint("status IN ('draft', 'approved')", name="ck_guardian_summaries_status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    record_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("visit_records.id", ondelete="CASCADE"), unique=True
+    )
+    status: Mapped[str] = mapped_column(Text, default="draft")
+    sentences: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class VisitSession(Base):
+    """방문 시작·종료 시각 (위치는 수집하지 않는다). 요양보호사당 열린 방문은 하나."""
+
+    __tablename__ = "visit_sessions"
+    __table_args__ = (
+        Index(
+            "uq_visit_sessions_open",
+            "caregiver_id",
+            unique=True,
+            postgresql_where=text("ended_at IS NULL"),
+        ),
+        Index("ix_visit_sessions_recipient_started", "recipient_id", "started_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    recipient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("recipients.id"))
+    caregiver_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    caregiver: Mapped[User] = relationship(lazy="joined", viewonly=True)
+
+
+class Message(Base):
+    """수급자별 업무 메시지 (기관 담당자 ↔ 담당 요양보호사). 보호자는 볼 수 없다."""
+
+    __tablename__ = "messages"
+    __table_args__ = (Index("ix_messages_recipient_created", "recipient_id", "created_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    recipient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("recipients.id"))
+    author_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    body: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    author: Mapped[User] = relationship(lazy="joined", viewonly=True)

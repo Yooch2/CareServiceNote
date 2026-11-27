@@ -139,6 +139,9 @@ def resolve_alert(alert_id: uuid.UUID, body: ResolveIn, db: DbSession, user: Man
     alert.status, alert.resolution = "resolved", body.resolution
     alert.resolution_note = (body.note or "").strip() or None
     alert.resolved_by, alert.resolved_at = user.id, datetime.now(UTC)
+    message = (body.guardian_message or "").strip()
+    if message:
+        alert.guardian_message, alert.shared_at = message, alert.resolved_at
     db.commit()
     db.refresh(alert)
     return alert
