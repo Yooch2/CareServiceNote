@@ -5,9 +5,10 @@
 
 - 로그인: (아이디 + 클라이언트 IP)별 15분 5번, IP별 15분 30번,
   그리고 IP와 상관없이 아이디별 한 시간 30번(여러 IP로 나눠 대입하는 경우).
-  아이디별 상한에 닿아도, 최근 실패가 없는 IP의 시도는 통과시킨다. 그래서 남이 내 아이디로
-  실패를 쌓아도 나는 로그인할 수 있고, 여러 IP로 나눈 대입은 새 IP마다 한 번씩만 시도할 수 있다.
-  (CAPTCHA 없이 대입 방지와 잠금 악용 방지를 절충한 방식)
+  아이디별 상한에 닿으면 이 아이디에 로그인에 성공한 적 있는 IP(아는 기기)만 통과시킨다.
+  그래서 남이 내 아이디로 실패를 쌓아도 쓰던 기기에서는 로그인할 수 있고, 공격자 IP는 막힌다.
+  아는 IP도 (아이디+IP)별 15분 5번 제한은 그대로라, 대입 횟수는 '아는 IP 수 × 시간당 20번'을
+  넘지 못한다. (CAPTCHA·2단계 인증 없이 대입 방지와 잠금 악용 방지를 절충한 방식)
   없는 아이디도 같은 방식으로 세서 막히는지로 아이디 존재를 알 수 없다.
 - 초대 코드: IP별 한 시간 10번. 전체 실패가 많으면 막지 않고 경고 로그만 남긴다.
 - IPv6는 /64 단위로 묶어 센다 (한 가입자가 보통 /64 전체를 쓴다).
@@ -65,9 +66,8 @@ class Rule:
     key: str
     limit: int
     window: timedelta
-    # 이 규칙은 같은 요청의 다른 규칙 중 하나라도 최근 실패가 있을 때만 막는다
-    # (아이디 전체 상한: 최근 실패가 없는 깨끗한 IP의 시도는 통과시켜 진짜 사용자가 잠기지 않게)
-    only_if_dirty: bool = False
+    # 이 아이디에 로그인에 성공한 적 있는 IP(아는 기기)는 이 규칙에서 빼 준다
+    exempt_known: bool = False
 
 
 def _count(db: Session, rule: Rule) -> int:
@@ -85,17 +85,16 @@ def _count(db: Session, rule: Rule) -> int:
     )
 
 
-def _reserve(db: Session, rules: list[Rule], message: str) -> list[uuid.UUID]:
+def _reserve(db: Session, rules: list[Rule], message: str, known: bool = False) -> list[uuid.UUID]:
     """규칙을 모두 확인하고, 통과하면 실패 한 번씩 미리 기록한다."""
     for rule in sorted(rules, key=lambda r: (r.kind, r.key)):  # 같은 순서로 잠가 교착을 피한다
         db.execute(
             select(func.pg_advisory_xact_lock(_LOCK, func.hashtext(f"{rule.kind}:{rule.key}")))
         )
-    counts = {rule.kind: _count(db, rule) for rule in rules}
-    dirty = any(counts[r.kind] > 0 for r in rules if not r.only_if_dirty)
     for rule in rules:
-        over = counts[rule.kind] >= rule.limit
-        if over and (dirty or not rule.only_if_dirty):
+        if rule.exempt_known and known:
+            continue
+        if _count(db, rule) >= rule.limit:
             db.rollback()
             raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, message)
     rows = [AuthFailure(kind=r.kind, key=r.key) for r in rules]
@@ -109,9 +108,21 @@ def release(db: Session, ids: list[uuid.UUID]) -> None:
     db.execute(delete(AuthFailure).where(AuthFailure.id.in_(ids)))
 
 
+def _known_key(account: str, ip: str) -> str:
+    return _hash("known", account, ip)
+
+
 def reserve_login(db: Session, login_id: str, ip: str) -> list[uuid.UUID]:
     window = timedelta(minutes=settings.login_lock_minutes)
+    hour = timedelta(hours=1)
     account = login_id.strip().lower()
+    known = bool(
+        db.scalar(
+            select(func.count())
+            .select_from(AuthFailure)
+            .where(AuthFailure.kind == "login_ok", AuthFailure.key == _known_key(account, ip))
+        )
+    )
     return _reserve(
         db,
         [
@@ -121,13 +132,19 @@ def reserve_login(db: Session, login_id: str, ip: str) -> list[uuid.UUID]:
                 "login_account",
                 _hash(account),
                 settings.login_max_failures_per_account,
-                timedelta(hours=1),
-                only_if_dirty=True,
+                hour,
+                exempt_known=True,
             ),
         ],
         f"로그인 실패가 많아 잠시 막았습니다. "
         f"{settings.login_lock_minutes}분 뒤에 다시 시도해 주세요",
+        known=known,
     )
+
+
+def remember_success(db: Session, login_id: str, ip: str) -> None:
+    """로그인에 성공한 (아이디, IP)를 기억한다 (30일). 호출한 쪽이 커밋한다."""
+    db.add(AuthFailure(kind="login_ok", key=_known_key(login_id.strip().lower(), ip)))
 
 
 def reserve_invite(db: Session, ip: str) -> list[uuid.UUID]:

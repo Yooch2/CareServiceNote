@@ -70,8 +70,17 @@ def purge(db: Session, now: datetime) -> PurgeResult:
         .values(transcript=None, transcript_segments=None, draft=None)
         .returning(VisitRecord.id)
     ).all()
-    # 시도 횟수 제한용 실패 기록은 하루 지나면 쓸 일이 없다
-    db.execute(delete(AuthFailure).where(AuthFailure.created_at < now - timedelta(days=1)))
+    # 시도 횟수 제한용 실패 기록은 하루, 아는 기기(로그인 성공) 기록은 30일 지나면 지운다
+    db.execute(
+        delete(AuthFailure).where(
+            AuthFailure.kind != "login_ok", AuthFailure.created_at < now - timedelta(days=1)
+        )
+    )
+    db.execute(
+        delete(AuthFailure).where(
+            AuthFailure.kind == "login_ok", AuthFailure.created_at < now - timedelta(days=30)
+        )
+    )
     db.commit()
     # DB에서 경로를 지운 뒤 파일을 지운다 (반대 순서면 실패 시 없는 파일을 가리키게 된다)
     for _, path in [*audio_rows, *photo_rows]:

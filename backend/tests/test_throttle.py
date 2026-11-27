@@ -36,8 +36,9 @@ def test_login_locks_after_failures_and_unlocks_after_window(
     db.commit()
     before = db.scalar(select(func.count()).select_from(AuthFailure))
     assert _login(client, "carer01", PASSWORD) == 200
-    # 성공한 시도는 미리 남긴 기록(아이디+IP, IP 두 줄)을 지우고, 지난 실패는 기간이 지나면 사라진다
-    assert db.scalar(select(func.count()).select_from(AuthFailure)) == before
+    # 성공한 시도는 미리 남긴 실패 기록을 지우고 '아는 기기' 한 줄을 남긴다.
+    # 지난 실패는 기간이 지나면 사라진다
+    assert db.scalar(select(func.count()).select_from(AuthFailure)) == (before or 0) + 1
 
 
 def test_unknown_login_is_throttled_the_same_way(client: TestClient) -> None:
@@ -132,11 +133,15 @@ def test_purge_removes_old_failures(db: Session) -> None:
         [
             AuthFailure(kind="login", key="a", created_at=datetime.now(UTC) - timedelta(days=2)),
             AuthFailure(kind="login", key="b"),
+            AuthFailure(kind="login_ok", key="c", created_at=datetime.now(UTC) - timedelta(days=2)),
+            AuthFailure(
+                kind="login_ok", key="d", created_at=datetime.now(UTC) - timedelta(days=31)
+            ),
         ]
     )
     db.commit()
     purge(db, datetime.now(UTC))
-    assert db.scalars(select(AuthFailure.key)).all() == ["b"]
+    assert sorted(db.scalars(select(AuthFailure.key)).all()) == ["b", "c"]
 
 
 def test_production_settings_refuse_unsafe_values() -> None:
@@ -161,10 +166,10 @@ def test_production_settings_refuse_unsafe_values() -> None:
     assert ok.env == "production"
 
 
-def test_account_ceiling_across_ips_but_clean_ip_still_gets_in(
+def test_account_ceiling_blocks_new_ips_but_known_device_gets_in(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """여러 IP로 나눈 대입은 아이디별 상한에 걸리고, 최근 실패가 없는 IP의 진짜 사용자는 들어간다"""
+    """여러 IP로 나눈 대입은 아이디별 상한에 막히고, 전에 로그인했던 기기는 들어간다"""
     monkeypatch.setattr(settings, "trust_proxy", True)
     monkeypatch.setattr(settings, "login_max_failures_per_account", 4)
     signup(client, login_id="target01")
@@ -177,15 +182,33 @@ def test_account_ceiling_across_ips_but_clean_ip_still_gets_in(
             headers={"X-Forwarded-For": ip},
         ).status_code
 
+    home = "198.51.100.7"
+    assert attempt(home, PASSWORD) == 200  # 평소 쓰는 기기
+    client.post("/auth/logout")
     for n in range(4):
         assert attempt(f"203.0.113.{n}", "wrong-pass-1") == 401
-    # 상한에 닿은 뒤: 실패가 있던 IP는 막힌다
-    assert attempt("203.0.113.0", "wrong-pass-1") == 429
-    # 새 IP는 한 번 시도할 수 있지만, 틀리면 그 IP도 실패가 생겨 다음부터 막힌다
-    assert attempt("203.0.113.50", "wrong-pass-1") == 401
+    # 상한에 닿은 뒤: 처음 보는 IP는 맞든 틀리든 막힌다 (공격자가 IP를 바꿔도 소용없음)
     assert attempt("203.0.113.50", "wrong-pass-1") == 429
-    # 실패한 적 없는 네트워크의 진짜 사용자는 로그인된다
-    assert attempt("198.51.100.7", PASSWORD) == 200
+    assert attempt("192.0.2.1", PASSWORD) == 429
+    # 전에 로그인한 기기는 들어간다
+    assert attempt(home, PASSWORD) == 200
+
+
+def test_known_device_is_still_limited_per_ip(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """아는 기기도 (아이디+IP)별 제한은 그대로라 그 IP에서 대입할 수 없다"""
+    monkeypatch.setattr(settings, "trust_proxy", True)
+    signup(client, login_id="target02")
+    client.post("/auth/logout")
+    home = {"X-Forwarded-For": "198.51.100.7"}
+    right = {"login_id": "target02", "password": PASSWORD}
+    assert client.post("/auth/login", json=right, headers=home).status_code == 200
+    client.post("/auth/logout")
+    wrong = {"login_id": "target02", "password": "wrong-pass-1"}
+    for _ in range(settings.login_max_failures):
+        assert client.post("/auth/login", json=wrong, headers=home).status_code == 401
+    assert client.post("/auth/login", json=wrong, headers=home).status_code == 429
 
 
 def test_invite_failures_only_warn_globally(

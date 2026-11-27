@@ -584,7 +584,10 @@ class RecordPhoto(Base):
 
 
 class AuthFailure(Base):
-    """로그인·초대 코드 실패 기록 (시도 횟수 제한용). key는 아이디의 해시나 'invite'."""
+    """로그인·초대 코드 시도 기록 (시도 횟수 제한용). key는 아이디·IP의 해시만 저장한다.
+
+    kind가 login_ok인 행은 실패가 아니라 로그인에 성공한 (아이디, IP) = 아는 기기 기록이다.
+    """
 
     __tablename__ = "auth_failures"
     __table_args__ = (Index("ix_auth_failures_lookup", "kind", "key", "created_at"),)

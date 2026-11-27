@@ -107,6 +107,7 @@ def login(body: LoginIn, db: DbSession, request: Request, response: Response) ->
     if not ok or user is None or not user.active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, _BAD_LOGIN)  # 미리 기록한 실패가 남는다
     throttle.release(db, attempt)
+    throttle.remember_success(db, body.login_id, throttle.client_ip(request))
     db.commit()
     _set_session(response, user)
     return user
