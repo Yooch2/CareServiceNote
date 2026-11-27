@@ -142,6 +142,7 @@ export interface VisitRecord {
   mood: Mood | null;
   review: { reviewer_name: string; reviewed_at: string } | null;
   revisions: Revision[];
+  photos: { id: string; created_at: string; available: boolean }[];
 }
 
 export interface RecordSummary {

@@ -7,13 +7,15 @@ from sqlalchemy.orm import Session
 from app import worker
 from app.ai.errors import PermanentAIError, TransientAIError
 from app.ai.fake import FakeClassifier, FakeTranscriber
-from app.ai.types import Transcript
+from app.ai.types import Segment, Transcript
 from app.db import SessionLocal
 from app.models import VisitRecord
 from tests.helpers import make_confirmed, make_record
 
-# 기록의 available_at은 DB 현재 시각으로 들어가므로, 고정 날짜 대신 실행 시각보다 조금 뒤로 둔다
-NOW = datetime.now(UTC).replace(microsecond=0) + timedelta(minutes=1)
+# 기록의 available_at은 DB 현재 시각으로 들어가므로, 고정 날짜 대신 실행 시각보다 뒤로 둔다.
+# 모듈을 읽을 때 정하는 값이라 테스트가 늘어 이 파일이 늦게 돌아도 새 기록보다 뒤가 되게 하루 뒤로.
+# (1분 뒤로 두었더니 CI에서 수집 후 1분이 지나 기록을 가져가지 못한 적이 있다)
+NOW = datetime.now(UTC).replace(microsecond=0) + timedelta(days=1)
 
 
 def _reload(db: Session, record: VisitRecord) -> VisitRecord:
@@ -183,3 +185,28 @@ def test_withdrawn_consent_stops_ai_processing(db: Session) -> None:
     assert record.status == "failed"
     assert record.error_code == "consent_withdrawn"
     assert transcriber.calls == 0
+
+
+class _PhoneTranscriber:
+    def transcribe(self, audio: Path) -> Transcript:
+        text = "따님 번호는 010-1234-5678 이에요."
+        return Transcript(text, [Segment(0, 1000, text)], False)
+
+
+class _SpyClassifier(FakeClassifier):
+    seen: str = ""
+
+    def classify(self, transcript: Transcript, followups=()):  # noqa: ANN001, ANN201
+        _SpyClassifier.seen = transcript.text
+        return super().classify(transcript, followups)
+
+
+def test_contacts_masked_before_storage_and_classification(db: Session) -> None:
+    record = make_record(db)
+    worker.run_once(SessionLocal, _PhoneTranscriber(), _SpyClassifier(), lambda: NOW)
+    db.refresh(record)
+    assert record.transcript == "따님 번호는 [전화번호] 이에요."
+    assert record.transcript_segments == [
+        {"start_ms": 0, "end_ms": 1000, "text": "따님 번호는 [전화번호] 이에요."}
+    ]
+    assert "010" not in _SpyClassifier.seen

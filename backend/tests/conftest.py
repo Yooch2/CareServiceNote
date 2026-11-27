@@ -9,6 +9,7 @@ os.environ["DATABASE_URL"] = _BASE_URL.rsplit("/", 1)[0] + f"/{TEST_DB_NAME}"
 os.environ.setdefault("JWT_SECRET", "test-secret-not-for-production-0123456789")
 os.environ["AI_PROVIDER"] = "fake"
 os.environ["AUDIO_DIR"] = tempfile.mkdtemp(prefix="csn-audio-")
+os.environ["STORAGE_KEY"] = "dGVzdC1rZXktbm90LWZvci1wcm9kdWN0aW9uLTAxMjM="  # 테스트 전용 Fernet 키
 
 import psycopg  # noqa: E402
 import pytest  # noqa: E402

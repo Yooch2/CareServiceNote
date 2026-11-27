@@ -37,6 +37,7 @@ import {
 import type { BodyPart, Category, Mood, VisitRecord } from "@/lib/types";
 import { CategoryHeading, TabbedSheet } from "./category";
 import { FollowupReview } from "./followup-review";
+import { Photos } from "./photos";
 import { Transcript } from "./transcript";
 import { Badge, Button, Notice, Sheet } from "./ui";
 
@@ -171,6 +172,8 @@ export function ReviewPanel({
           </section>
         );
       })}
+
+      <Photos record={record} editable />
 
       <Sheet>
         <form onSubmit={add} className="flex flex-col gap-3">

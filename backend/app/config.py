@@ -15,6 +15,13 @@ class Settings(BaseSettings):
 
     audio_dir: Path = Path("var/audio")
     max_audio_bytes: int = 10 * 1024 * 1024
+    # 음성·사진 파일 암호화 키 (Fernet). 만들기: python -m app.storage
+    storage_key: str | None = None
+    # 보관 기간: 확정되지 않은 기록의 음성·사진 / 확정 기록의 전사문·초안
+    audio_retention_days: int = 30
+    transcript_retention_days: int = 180
+    max_photo_bytes: int = 5 * 1024 * 1024
+    max_photos_per_record: int = 3
     daily_records_per_user: int = 20
     daily_records_total: int = 200
     daily_summaries_per_user: int = 20

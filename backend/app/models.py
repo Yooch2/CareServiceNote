@@ -260,6 +260,9 @@ class VisitRecord(Base):
     reviewer: Mapped[User | None] = relationship(
         foreign_keys=[reviewed_by], lazy="selectin", viewonly=True
     )
+    photos: Mapped[list["RecordPhoto"]] = relationship(
+        order_by="RecordPhoto.created_at", lazy="selectin", viewonly=True
+    )
     # 정정 이력 (오래된 순)
     revisions: Mapped[list["RecordRevision"]] = relationship(
         order_by="RecordRevision.created_at", lazy="selectin", viewonly=True
@@ -560,3 +563,21 @@ class AuditEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     actor: Mapped[User] = relationship(lazy="joined", viewonly=True)
+
+
+class RecordPhoto(Base):
+    """확정 전 검토 화면에서 붙인 사진. EXIF를 지운 JPEG를 암호화해 저장한다. 직원만 본다."""
+
+    __tablename__ = "record_photos"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    record_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("visit_records.id", ondelete="CASCADE"), index=True
+    )
+    path: Mapped[str | None] = mapped_column(Text)  # 보관 기간이 지나 지우면 null
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    @property
+    def available(self) -> bool:
+        return self.path is not None

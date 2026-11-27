@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app import storage
 from app.config import settings
 from app.main import app
 from app.models import VisitRecord
@@ -30,7 +31,10 @@ def test_put_creates_then_is_idempotent(client: TestClient, db: Session) -> None
 
     record = db.get(VisitRecord, uuid.UUID(record_id))
     assert record is not None and record.audio_path is not None
-    assert Path(record.audio_path).read_bytes() == b"fake-audio"
+    stored = Path(record.audio_path)
+    assert b"fake-audio" not in stored.read_bytes()  # 디스크에는 암호문만
+    assert stored.suffix == ".enc" and stored.stat().st_mode & 0o077 == 0  # 소유자만 읽기
+    assert storage.read(stored) == b"fake-audio"
     assert len(list(settings.audio_dir.glob(f"{record_id}*"))) == 1
 
 
@@ -139,3 +143,20 @@ def test_daily_limit_holds_under_concurrency(
     with ThreadPoolExecutor(max_workers=5) as pool:
         codes = sorted(pool.map(upload, range(5)))
     assert codes == [201, 429, 429, 429, 429]
+
+
+def test_audio_supports_range_requests(client: TestClient) -> None:
+    """검토 화면이 근거 구간으로 이동해 재생할 수 있도록 복호화한 음성도 Range를 지원한다"""
+    signup(client)
+    rid = add_recipient(client)["id"]
+    record_id = str(uuid.uuid4())
+    put_audio(client, record_id, rid, content=b"0123456789")
+    part = client.get(f"/records/{record_id}/audio", headers={"Range": "bytes=2-5"})
+    assert part.status_code == 206
+    assert part.content == b"2345"
+    assert part.headers["content-range"] == "bytes 2-5/10"
+    tail = client.get(f"/records/{record_id}/audio", headers={"Range": "bytes=-3"})
+    assert tail.content == b"789"
+    bad = client.get(f"/records/{record_id}/audio", headers={"Range": "bytes=20-"})
+    assert bad.status_code == 416
+    assert client.get(f"/records/{record_id}/audio").headers["accept-ranges"] == "bytes"
