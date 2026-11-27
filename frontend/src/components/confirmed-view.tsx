@@ -8,6 +8,7 @@ import type { VisitRecord } from "@/lib/types";
 import { useUser } from "./auth-gate";
 import { CategoryHeading, TabbedSheet } from "./category";
 import { ItemCorrectionForm, RevisionList, StateCorrectionForm } from "./correction";
+import { Photos } from "./photos";
 import { Badge, Button } from "./ui";
 
 export function ConfirmedView({ record, onChange }: { record: VisitRecord; onChange: (r: VisitRecord) => void }) {
@@ -128,6 +129,7 @@ export function ConfirmedView({ record, onChange }: { record: VisitRecord; onCha
           </section>
         );
       })}
+      <Photos record={record} editable={false} />
       {record.transcript && (
         <details className="rounded-lg border border-line bg-sheet p-4">
           <summary className="min-h-8 cursor-pointer font-semibold">전사문 보기</summary>
