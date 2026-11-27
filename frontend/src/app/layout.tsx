@@ -10,7 +10,8 @@ const plex = IBM_Plex_Sans_KR({
 });
 
 export const metadata: Metadata = {
-  title: "돌봄수첩",
+  // 화면마다 제목을 단다 (탭 전환·화면 읽기 프로그램용). 수급자 이름은 방문 기록(history)에 남지 않게 넣지 않는다
+  title: { default: "돌봄수첩", template: "%s · 돌봄수첩" },
   description: "방문요양 음성 기록을 정리해 다음 돌봄으로 잇는 서비스",
 };
 
