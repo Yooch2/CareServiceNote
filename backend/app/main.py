@@ -16,6 +16,7 @@ from app.routers import (
     guardian,
     handover,
     org,
+    photos,
     recipients,
     records,
     search,
@@ -33,6 +34,7 @@ app.include_router(guardian.router)
 app.include_router(alerts.router)
 app.include_router(sharing.router)
 app.include_router(corrections.router)
+app.include_router(photos.router)
 
 # multipart 경계·폼 필드에 쓰이는 여유분
 _FORM_OVERHEAD = 64 * 1024
@@ -42,15 +44,21 @@ _FORM_OVERHEAD = 64 * 1024
 async def limit_upload_size(
     request: Request, call_next: Callable[[Request], Awaitable[Response]]
 ) -> Response:
-    """음성 업로드는 본문을 읽기 전에 Content-Length로 거른다 (파싱 중 디스크 소모 방지)."""
-    if request.method == "PUT" and request.url.path.startswith("/records/"):
+    """음성·사진 업로드는 본문을 읽기 전에 Content-Length로 거른다 (파싱 중 디스크 소모 방지)."""
+    path = request.url.path
+    is_audio = request.method == "PUT" and path.startswith("/records/")
+    is_photo = (
+        request.method == "POST" and path.startswith("/records/") and path.endswith("/photos")
+    )
+    if is_audio or is_photo:
+        limit = settings.max_audio_bytes if is_audio else settings.max_photo_bytes
         length = request.headers.get("content-length")
         if length is None:
             return JSONResponse(
                 {"detail": "Content-Length가 필요합니다"},
                 status_code=status.HTTP_411_LENGTH_REQUIRED,
             )
-        if not length.isdigit() or int(length) > settings.max_audio_bytes + _FORM_OVERHEAD:
+        if not length.isdigit() or int(length) > limit + _FORM_OVERHEAD:
             return JSONResponse(
                 {"detail": "요청 본문이 너무 큽니다"},
                 status_code=status.HTTP_413_CONTENT_TOO_LARGE,

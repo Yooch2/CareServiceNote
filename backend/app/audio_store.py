@@ -2,6 +2,7 @@ import uuid
 from pathlib import Path
 from typing import BinaryIO
 
+from app import storage
 from app.config import settings
 
 _EXTENSIONS = {
@@ -33,25 +34,29 @@ def extension_for(content_type: str | None) -> str | None:
 
 
 def save(record_id: uuid.UUID, src: BinaryIO, ext: str) -> Path:
-    """기록마다 고유 파일명으로 저장한다. 같은 id 동시 업로드에서 서로의 파일을 덮어쓰지 않게."""
-    settings.audio_dir.mkdir(parents=True, exist_ok=True)
-    path = (settings.audio_dir / f"{record_id}-{uuid.uuid4().hex}{ext}").resolve()
-    written = 0
-    try:
-        with path.open("wb") as out:
-            while chunk := src.read(_CHUNK):
-                written += len(chunk)
-                if written > settings.max_audio_bytes:
-                    raise AudioTooLarge
-                out.write(chunk)
-        if written == 0:
-            raise AudioEmpty
-    except BaseException:
-        path.unlink(missing_ok=True)
-        raise
-    return path
+    """크기를 확인하며 읽고 암호화해 저장한다.
+
+    파일 이름에 원래 확장자를 남겨 형식을 알 수 있게 한다.
+    """
+    data = bytearray()
+    while chunk := src.read(_CHUNK):
+        data += chunk
+        if len(data) > settings.max_audio_bytes:
+            raise AudioTooLarge
+    if not data:
+        raise AudioEmpty
+    return storage.write(settings.audio_dir, f"{record_id}{ext}", bytes(data))
 
 
-def delete(path: str | None) -> None:
-    if path:
-        Path(path).unlink(missing_ok=True)
+def original_suffix(path: Path) -> str:
+    """'<id>.webm-<랜덤>.enc' → '.webm' (암호화 전 파일은 그대로 확장자)"""
+    if path.suffix != storage.SUFFIX:
+        return path.suffix
+    return "." + path.name.split(".")[1].split("-")[0]
+
+
+def media_type(path: Path) -> str:
+    return MEDIA_TYPES.get(original_suffix(path), "application/octet-stream")
+
+
+delete = storage.delete

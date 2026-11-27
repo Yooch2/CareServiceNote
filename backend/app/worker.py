@@ -10,6 +10,7 @@ from typing import Any
 from sqlalchemy import and_, or_, select, update
 from sqlalchemy.orm import Session
 
+from app import audio_store, storage
 from app.access import has_consent
 from app.ai.errors import AIError, PermanentAIError
 from app.ai.factory import build_ai
@@ -18,7 +19,9 @@ from app.ai.types import Classifier, OpenFollowup, Segment, Transcriber, Transcr
 from app.config import settings
 from app.db import SessionLocal
 from app.followups import open_followups
+from app.masking import mask_transcript
 from app.models import VisitRecord
+from app.retention import purge
 
 log = logging.getLogger("csn.worker")
 
@@ -27,6 +30,7 @@ BACKOFF_SECONDS = (5, 30)
 STALE_AFTER = timedelta(minutes=10)
 IDLE_SLEEP_SECONDS = 2.0
 MAX_FOLLOWUPS_IN_PROMPT = 10
+PURGE_EVERY_SECONDS = 3600
 
 SessionFactory = Callable[[], Session]
 Clock = Callable[[], datetime]
@@ -161,7 +165,13 @@ def process(
         if transcript is None:
             if claim.audio_path is None:
                 raise PermanentAIError("audio_missing")
-            transcript = transcriber.transcribe(Path(claim.audio_path))
+            # 암호화된 음성을 처리하는 동안만 임시 파일로 복호화한다
+            encrypted = Path(claim.audio_path)
+            if not encrypted.exists():
+                raise PermanentAIError("audio_missing")
+            with storage.plain_copy(encrypted, audio_store.original_suffix(encrypted)) as plain:
+                # 연락처·주민등록번호는 저장·분류 전에 가린다
+                transcript = mask_transcript(transcriber.transcribe(plain))
             if not _update_if_owned(
                 session_factory,
                 claim,
@@ -215,7 +225,12 @@ def main() -> None:
     log.info("worker started (provider=%s)", settings.ai_provider)
     # ponytail: 처리 중 Ctrl-C로 끄면 그 작업은 10분 뒤 회수된다.
     # 즉시 반납이 필요해지면 신호 처리를 추가한다.
+    last_purge = 0.0
     while True:
+        if time.monotonic() - last_purge > PURGE_EVERY_SECONDS:
+            with SessionLocal() as s:
+                purge(s, datetime.now(UTC))  # 보관 기간이 지난 음성·사진·전사문 삭제
+            last_purge = time.monotonic()
         if not run_once(SessionLocal, transcriber, classifier, lambda: datetime.now(UTC)):
             time.sleep(IDLE_SLEEP_SECONDS)
 

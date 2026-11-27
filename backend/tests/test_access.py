@@ -13,9 +13,10 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app import storage
 from app.config import settings
 from app.main import app
-from app.models import Alert, GuardianLink, GuardianSummary, Invite, Recipient
+from app.models import Alert, GuardianLink, GuardianSummary, Invite, Recipient, RecordPhoto
 from app.security import hash_password
 from tests.helpers import (
     PASSWORD,
@@ -44,6 +45,8 @@ class World:
     unassigned_id: uuid.UUID
     alert: uuid.UUID
     item: uuid.UUID
+    photo: uuid.UUID
+    draft_photo: uuid.UUID
 
 
 def _build(db: Session) -> World:
@@ -73,12 +76,14 @@ def _build(db: Session) -> World:
     )
     draft = make_confirmed(db, [], recipient_id=recipient.id, caregiver_id=assigned.id)
     draft.status, draft.confirmed_at, draft.draft = "draft_ready", None, {"items": []}
-    settings.audio_dir.mkdir(parents=True, exist_ok=True)
-    audio = settings.audio_dir / f"{draft.id}.webm"
-    audio.write_bytes(b"fake-audio")
-    draft.audio_path = str(audio)
+    draft.audio_path = str(storage.write(settings.audio_dir, f"{draft.id}.webm", b"fake-audio"))
     db.commit()
     invite: Invite = make_invite(db, org.id, manager.id, "ACCESS-TEST1")
+    jpeg = storage.write(settings.audio_dir / "photos", "t", b"jpeg-bytes")
+    photo = RecordPhoto(record_id=confirmed.id, path=str(jpeg), created_by=assigned.id)
+    draft_photo = RecordPhoto(record_id=draft.id, path=str(jpeg), created_by=assigned.id)
+    db.add_all([photo, draft_photo])
+    db.commit()
     alert = Alert(recipient_id=recipient.id, kind="urgent", key="k", evidence=[], note="우려")
     db.add(alert)
     db.add(
@@ -106,6 +111,8 @@ def _build(db: Session) -> World:
         unassigned_id=unassigned.id,
         alert=alert.id,
         item=confirmed.items[0].id,
+        photo=photo.id,
+        draft_photo=draft_photo.id,
     )
 
 
@@ -259,6 +266,17 @@ TABLE: list[tuple[str, str, Call, dict[str, int]]] = [
      {"manager": OK, "assigned": 403, "unassigned": 403, "other_manager": 404, "guardian": 403}),
     ("GET", "/recipients/{recipient_id}/export", lambda c, w: c.get(f"/recipients/{w.rid}/export"),
      {"manager": OK, "assigned": 403, "unassigned": 403, "other_manager": 404, "guardian": 403}),
+    ("POST", "/records/{record_id}/photos",
+     lambda c, w: c.post(
+         f"/records/{w.draft}/photos", files={"photo": ("p.jpg", b"x", "image/jpeg")}
+     ),
+     {"manager": 403, "assigned": OK, "unassigned": 404, "other_manager": 403, "guardian": 403}),
+    ("GET", "/records/{record_id}/photos/{photo_id}",
+     lambda c, w: c.get(f"/records/{w.confirmed}/photos/{w.photo}"),
+     {"manager": OK, "assigned": OK, "unassigned": 404, "other_manager": 404, "guardian": 403}),
+    ("DELETE", "/records/{record_id}/photos/{photo_id}",
+     lambda c, w: c.delete(f"/records/{w.draft}/photos/{w.draft_photo}"),
+     {"manager": 403, "assigned": OK, "unassigned": 404, "other_manager": 403, "guardian": 403}),
     ("GET", "/guardian/home", lambda c, w: c.get("/guardian/home"),
      {"manager": 403, "assigned": 403, "unassigned": 403, "other_manager": 403, "guardian": OK}),
 ]  # fmt: skip

@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import worker
+from app import storage, worker
 from app.ai.fake import FakeClassifier, FakeTranscriber
 from app.ai.types import Classifier, Transcriber
 from app.config import settings
@@ -211,10 +211,7 @@ def make_record(
     record_id = uuid.uuid4()
     audio_path = None
     if with_audio:
-        settings.audio_dir.mkdir(parents=True, exist_ok=True)
-        path = settings.audio_dir / f"{record_id}.webm"
-        path.write_bytes(b"fake-audio")
-        audio_path = str(path)
+        audio_path = str(storage.write(settings.audio_dir, f"{record_id}.webm", b"fake-audio"))
     record = VisitRecord(
         id=record_id,
         recipient_id=recipient_id,

@@ -129,6 +129,7 @@ class RecordOut(BaseModel):
     mood: Mood | None
     review: "ReviewOut | None"
     revisions: list["RevisionOut"]
+    photos: list["PhotoOut"]
 
 
 class ReviewOut(BaseModel):
@@ -539,3 +540,11 @@ class AuditOut(BaseModel):
     action: str
     record_id: uuid.UUID | None
     created_at: datetime
+
+
+class PhotoOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    created_at: datetime
+    available: bool  # 보관 기간이 지나 파일을 지웠으면 false

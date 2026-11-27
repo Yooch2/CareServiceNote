@@ -3,14 +3,13 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Form, HTTPException, Response, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Form, Header, HTTPException, Response, UploadFile, status
 from pydantic import AwareDatetime
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app import audio_store
+from app import audio_store, storage
 from app.access import (
     CaregiverUser,
     ManagerUser,
@@ -126,13 +125,18 @@ def get_record(record_id: uuid.UUID, user: StaffUser, db: DbSession) -> VisitRec
 
 
 @router.get("/{record_id}/audio")
-def get_audio(record_id: uuid.UUID, user: CaregiverUser, db: DbSession) -> FileResponse:
+def get_audio(
+    record_id: uuid.UUID,
+    user: CaregiverUser,
+    db: DbSession,
+    range_: Annotated[str | None, Header(alias="range")] = None,
+) -> Response:
     record = record_for_staff(db, user, record_id, own=True)
     if record.audio_path is None or not Path(record.audio_path).exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "음성 파일이 없습니다")
     path = Path(record.audio_path)
-    media_type = audio_store.MEDIA_TYPES.get(path.suffix, "application/octet-stream")
-    return FileResponse(path, media_type=media_type)
+    # 디스크에는 암호문만 있으므로 메모리에서 복호화해 내려준다
+    return storage.ranged_response(storage.read(path), audio_store.media_type(path), range_)
 
 
 @router.post("/{record_id}/confirm", response_model=RecordOut)

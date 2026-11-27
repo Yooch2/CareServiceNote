@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app import worker
 from app.ai.errors import PermanentAIError, TransientAIError
 from app.ai.fake import FakeClassifier, FakeTranscriber
-from app.ai.types import Transcript
+from app.ai.types import Segment, Transcript
 from app.db import SessionLocal
 from app.models import VisitRecord
 from tests.helpers import make_confirmed, make_record
@@ -183,3 +183,28 @@ def test_withdrawn_consent_stops_ai_processing(db: Session) -> None:
     assert record.status == "failed"
     assert record.error_code == "consent_withdrawn"
     assert transcriber.calls == 0
+
+
+class _PhoneTranscriber:
+    def transcribe(self, audio: Path) -> Transcript:
+        text = "따님 번호는 010-1234-5678 이에요."
+        return Transcript(text, [Segment(0, 1000, text)], False)
+
+
+class _SpyClassifier(FakeClassifier):
+    seen: str = ""
+
+    def classify(self, transcript: Transcript, followups=()):  # noqa: ANN001, ANN201
+        _SpyClassifier.seen = transcript.text
+        return super().classify(transcript, followups)
+
+
+def test_contacts_masked_before_storage_and_classification(db: Session) -> None:
+    record = make_record(db)
+    worker.run_once(SessionLocal, _PhoneTranscriber(), _SpyClassifier(), lambda: NOW)
+    db.refresh(record)
+    assert record.transcript == "따님 번호는 [전화번호] 이에요."
+    assert record.transcript_segments == [
+        {"start_ms": 0, "end_ms": 1000, "text": "따님 번호는 [전화번호] 이에요."}
+    ]
+    assert "010" not in _SpyClassifier.seen
