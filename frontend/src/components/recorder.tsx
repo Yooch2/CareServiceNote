@@ -19,6 +19,7 @@ export function Recorder() {
   const [audio, setAudio] = useState<Blob | null>(null);
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [fileKey, setFileKey] = useState(0); // 바꾸면 파일 선택 칸이 비워진다
   const [message, setMessage] = useState<{ tone: "info" | "error"; text: string } | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
 
@@ -83,6 +84,7 @@ export function Recorder() {
     if (result.kind === "queued") {
       window.dispatchEvent(new Event(QUEUE_CHANGED));
       setAudio(null);
+      setFileKey((k) => k + 1);
       setMessage({ tone: "info", text: "연결이 끊겨 이 기기에 저장했습니다. 다시 연결되면 자동으로 올라갑니다." });
     } else {
       setMessage({ tone: "error", text: result.message });
@@ -125,6 +127,7 @@ export function Recorder() {
         <label className="flex flex-col gap-1.5 text-muted">
           또는 음성 파일 올리기
           <input
+            key={fileKey}
             type="file"
             accept="audio/*"
             disabled={!consent || recording || busy}
