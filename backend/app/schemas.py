@@ -137,3 +137,64 @@ class ConfirmIn(BaseModel):
         if not self.items and not self.followup_checks:
             raise ValueError("남길 항목이나 확인 결과가 하나 이상 있어야 합니다")
         return self
+
+
+Days = Literal[7, 14, 30]
+
+
+class OpenFollowupOut(BaseModel):
+    item_id: uuid.UUID
+    content: str
+    evidence: str | None
+    record_id: uuid.UUID
+    visited_on: date
+
+
+class RiskItemOut(BaseModel):
+    item_id: uuid.UUID
+    category: Category
+    content: str
+    risk_tag: RiskTag
+    record_id: uuid.UUID
+    visited_on: date
+
+
+class RecentCheckOut(BaseModel):
+    followup_item_id: uuid.UUID
+    followup_content: str
+    result: str
+    origin: Literal["ai", "ai_edited", "human"]
+    record_id: uuid.UUID
+    visited_on: date
+
+
+class CompletionOut(BaseModel):
+    due: int
+    checked: int
+
+
+class SummaryRefOut(BaseModel):
+    item_id: uuid.UUID
+    record_id: uuid.UUID
+    visited_on: date
+
+
+class SummarySentenceOut(BaseModel):
+    text: str
+    items: list[SummaryRefOut]
+
+
+class SummaryOutApi(BaseModel):
+    sentences: list[SummarySentenceOut]
+    created_at: datetime
+    stale: bool
+
+
+class HandoverOut(BaseModel):
+    days: int
+    last_visit_on: date | None
+    open_followups: list[OpenFollowupOut]
+    risk_items: list[RiskItemOut]
+    recent_checks: list[RecentCheckOut]
+    completion: CompletionOut
+    summary: SummaryOutApi | None
