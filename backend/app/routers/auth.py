@@ -77,6 +77,8 @@ def signup(body: SignupIn, db: DbSession, request: Request, response: Response) 
         db.commit()
         raise HTTPException(status.HTTP_409_CONFLICT, "이미 사용 중인 아이디입니다") from None
     throttle.release(db, attempt)
+    # 가입한 기기도 '아는 기기'로 기억한다 (아이디가 공격받아도 이 기기에서는 로그인할 수 있게)
+    throttle.remember_success(db, body.login_id, throttle.client_ip(request))
     db.commit()
     _set_session(response, user)
     return user

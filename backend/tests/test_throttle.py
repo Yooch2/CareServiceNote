@@ -233,3 +233,25 @@ def test_ipv6_grouped_by_64() -> None:
     assert _ip_bucket("2001:db8:1:2:aaaa::1") == _ip_bucket("2001:db8:1:2:bbbb::9")
     assert _ip_bucket("2001:db8:1:2::1") != _ip_bucket("2001:db8:1:3::1")
     assert _ip_bucket("203.0.113.5") == "203.0.113.5"
+
+
+def test_signup_device_is_known(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """가입한 기기는 처음부터 '아는 기기'라 아이디가 공격받아도 로그인할 수 있다"""
+    monkeypatch.setattr(settings, "trust_proxy", True)
+    monkeypatch.setattr(settings, "login_max_failures_per_account", 2)
+    home = {"X-Forwarded-For": "198.51.100.7"}
+    res = client.post(
+        "/auth/signup",
+        json={"login_id": "fresh01", "password": PASSWORD, "display_name": "x", "center_name": "c"},
+        headers=home,
+    )
+    assert res.status_code == 201
+    client.post("/auth/logout")
+    for n in range(2):
+        client.post(
+            "/auth/login",
+            json={"login_id": "fresh01", "password": "wrong-pass-1"},
+            headers={"X-Forwarded-For": f"203.0.113.{n}"},
+        )
+    right = {"login_id": "fresh01", "password": PASSWORD}
+    assert client.post("/auth/login", json=right, headers=home).status_code == 200
