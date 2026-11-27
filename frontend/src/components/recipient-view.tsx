@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { STATUS_LABEL } from "@/lib/labels";
 import type { Recipient, RecordStatus, RecordSummary } from "@/lib/types";
+import { ConcernForm, RecipientAlerts, Trends } from "./alerts-panel";
 import { useUser } from "./auth-gate";
 import { HandoverPanel } from "./handover-panel";
 import { RecordSearch } from "./record-search";
@@ -33,6 +34,7 @@ export function RecipientView() {
   const [recipient, setRecipient] = useState<Recipient | null>(null);
   const [records, setRecords] = useState<RecordSummary[] | null>(null);
   const [error, setError] = useState(false);
+  const [alertsVersion, setAlertsVersion] = useState(0);
 
   useEffect(() => {
     Promise.all([api<Recipient>(`/recipients/${id}`), api<RecordSummary[]>(`/recipients/${id}/records`)])
@@ -74,8 +76,13 @@ export function RecipientView() {
         ) : (
           <Notice tone="warn">건강정보 처리 동의가 없어 새 기록을 남길 수 없습니다. 기관 담당자에게 문의해 주세요.</Notice>
         ))}
-      <div className="mt-6">
+      <div className="mt-6 flex flex-col gap-6">
+        <RecipientAlerts recipientId={id} refresh={alertsVersion} />
         <HandoverPanel recipientId={id} canSummarize={consented} />
+        <Trends recipientId={id} />
+        {user.role === "caregiver" && consented && (
+          <ConcernForm recipientId={id} onSent={() => setAlertsVersion((n) => n + 1)} />
+        )}
       </div>
       <div className="mt-8">
         <RecordSearch recipientId={id} />

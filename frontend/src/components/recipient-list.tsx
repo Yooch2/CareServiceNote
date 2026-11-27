@@ -15,6 +15,7 @@ export function RecipientList() {
   const manager = user.role === "manager";
   const [recipients, setRecipients] = useState<Recipient[] | null>(null);
   const [reviews, setReviews] = useState<number | null>(null);
+  const [openAlerts, setOpenAlerts] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -28,6 +29,9 @@ export function RecipientList() {
     if (user.role === "manager") {
       api<ReviewQueueItem[]>("/org/reviews")
         .then((q) => setReviews(q.length))
+        .catch(() => undefined);
+      api<unknown[]>("/org/alerts")
+        .then((a) => setOpenAlerts(a.length))
         .catch(() => undefined);
     }
   }, [user.role, router]);
@@ -57,8 +61,10 @@ export function RecipientList() {
           className="mb-5 flex min-h-14 items-center justify-between rounded-xl border border-line bg-sheet px-4 font-semibold hover:border-pine"
         >
           센터 관리
-          <span className="text-muted">
-            {reviews ? <Badge tone="follow">확인 대기 {reviews}건</Badge> : <span aria-hidden>›</span>}
+          <span className="flex flex-wrap justify-end gap-1.5 text-muted">
+            {openAlerts > 0 && <Badge tone="risk">알림 {openAlerts}건</Badge>}
+            {reviews ? <Badge tone="follow">확인 대기 {reviews}건</Badge> : null}
+            {!openAlerts && !reviews && <span aria-hidden>›</span>}
           </span>
         </Link>
       )}

@@ -34,6 +34,7 @@ def build_confirmed_items(
                 "evidence": item.evidence,
                 "speaker_uncertain": item.speaker_uncertain,
                 "risk_tag": item.risk_tag,
+                "body_part": item.body_part,
                 "origin": origin,
                 "position": position,
             }

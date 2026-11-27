@@ -251,6 +251,9 @@ def make_confirmed(
     transcript: str | None = None,
     confirmed_at: datetime | None = None,
     risk: dict[int, str] | None = None,
+    parts: dict[int, str] | None = None,
+    uncertain: set[int] | None = None,
+    meal_level: int | None = None,
 ) -> VisitRecord:
     """확정된 방문 기록을 바로 만든다. items는 (분류, 내용) 목록, risk는 {순번: 위험 태그}."""
     if recipient_id is None:
@@ -271,6 +274,7 @@ def make_confirmed(
         status="confirmed",
         transcript=transcript,
         confirmed_at=confirmed_at or datetime.now(UTC),
+        meal_level=meal_level,
         items=[
             RecordItem(
                 category=category,
@@ -279,6 +283,8 @@ def make_confirmed(
                 origin="ai",
                 position=i,
                 risk_tag=(risk or {}).get(i),
+                body_part=(parts or {}).get(i),
+                speaker_uncertain=i in (uncertain or set()),
             )
             for i, (category, content) in enumerate(items)
         ],

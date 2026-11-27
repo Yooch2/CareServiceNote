@@ -6,6 +6,12 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 
 Category = Literal["remark", "observation", "followup"]
 RiskTag = Literal["fall", "medication", "pain"]
+BodyPart = Literal[
+    "head", "neck", "shoulder", "arm", "hand", "chest",
+    "abdomen", "back", "hip", "leg", "knee", "foot",
+]  # fmt: skip
+Mood = Literal["good", "neutral", "low"]
+MealLevel = Annotated[int, Field(ge=0, le=4)]
 
 ShortName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=30)]
 
@@ -94,6 +100,7 @@ class RecordItemOut(BaseModel):
     evidence: str | None
     speaker_uncertain: bool
     risk_tag: RiskTag | None
+    body_part: BodyPart | None
     origin: Literal["ai", "ai_edited", "human"]
     position: int
     check: CheckOut | None
@@ -117,6 +124,8 @@ class RecordOut(BaseModel):
     has_audio: bool
     created_at: datetime
     confirmed_at: datetime | None
+    meal_level: int | None
+    mood: Mood | None
     review: "ReviewOut | None"
 
 
@@ -145,6 +154,7 @@ class ConfirmItemIn(BaseModel):
     evidence: str | None = Field(default=None, max_length=1000)
     speaker_uncertain: bool = False
     risk_tag: RiskTag | None = None
+    body_part: BodyPart | None = None
 
 
 class FollowupCheckIn(BaseModel):
@@ -158,6 +168,9 @@ class ConfirmIn(BaseModel):
     dismissed_draft_indexes: list[int] = Field(default_factory=list)
     followup_checks: list[FollowupCheckIn] = Field(default_factory=list, max_length=20)
     dismissed_followup_items: list[uuid.UUID] = Field(default_factory=list, max_length=20)
+    # 오늘 상태 (요양보호사가 확인한 값, 언급이 없으면 null)
+    meal_level: MealLevel | None = None
+    mood: Mood | None = None
 
     @model_validator(mode="after")
     def _not_empty(self) -> "ConfirmIn":
@@ -359,3 +372,54 @@ class GuardianHomeOut(BaseModel):
     recipient_name: str
     categories: list[Category]
     records: list[GuardianVisitOut]
+
+
+# --- 4단계: 알림 · 추이 ---
+
+AlertKind = Literal["repeated_discomfort", "meal_drop", "urgent"]
+
+
+class AlertEvidenceOut(BaseModel):
+    record_id: uuid.UUID
+    item_id: uuid.UUID | None
+    visited_on: date
+    text: str
+
+
+class AlertOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    recipient_id: uuid.UUID
+    kind: AlertKind
+    key: str
+    status: Literal["open", "resolved"]
+    evidence: list[AlertEvidenceOut]
+    note: str | None
+    created_at: datetime
+    updated_at: datetime
+    resolution: Literal["acted", "false_alarm"] | None
+    resolution_note: str | None
+    resolved_at: datetime | None
+
+
+class OrgAlertOut(AlertOut):
+    recipient_name: str
+    created_by_name: str | None
+    resolved_by_name: str | None
+
+
+class ConcernIn(BaseModel):
+    note: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+
+
+class ResolveIn(BaseModel):
+    resolution: Literal["acted", "false_alarm"]
+    note: str | None = Field(default=None, max_length=500)
+
+
+class TrendPointOut(BaseModel):
+    record_id: uuid.UUID
+    visited_on: date
+    meal_level: int | None
+    mood: Mood | None

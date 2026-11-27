@@ -17,7 +17,7 @@ async function call<T = unknown>(req: APIRequestContext, method: "post" | "get",
  * API로 센터(기관 담당자)·수급자·건강정보 동의·요양보호사 계정·배정을 만들고,
  * 브라우저는 요양보호사로 로그인된 상태로 둔다.
  */
-export async function setupCaregiver(page: Page): Promise<{ recipientName: string }> {
+export async function setupCaregiver(page: Page): Promise<{ recipientName: string; manager: string }> {
   const req = page.request;
   const manager = uniqueId("boss");
   const carer = uniqueId("e2e");
@@ -45,7 +45,7 @@ export async function setupCaregiver(page: Page): Promise<{ recipientName: strin
   await call(req, "post", "/auth/login", { login_id: manager, password: PASSWORD });
   await call(req, "post", `/recipients/${recipient.id}/assignments`, { caregiver_id: user.id });
   await call(req, "post", "/auth/login", { login_id: carer, password: PASSWORD });
-  return { recipientName };
+  return { recipientName, manager };
 }
 
 /** 요양보호사로 준비한 뒤 수급자 녹음 화면에서 파일을 골라 둔다. */

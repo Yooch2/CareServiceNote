@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    SmallInteger,
     Text,
     func,
     text,
@@ -25,6 +26,12 @@ RISK_TAGS = ("fall", "medication", "pain")
 ORIGINS = ("ai", "ai_edited", "human")
 ROLES = ("manager", "caregiver", "guardian")
 CONSENT_KINDS = ("health_record", "guardian_share")
+BODY_PARTS = (
+    "head", "neck", "shoulder", "arm", "hand", "chest",
+    "abdomen", "back", "hip", "leg", "knee", "foot",
+)  # fmt: skip
+MOODS = ("good", "neutral", "low")
+ALERT_KINDS = ("repeated_discomfort", "meal_drop", "urgent")
 
 
 def _one_of(column: str, values: tuple[str, ...]) -> str:
@@ -201,6 +208,8 @@ class VisitRecord(Base):
     __tablename__ = "visit_records"
     __table_args__ = (
         CheckConstraint(_one_of("status", RECORD_STATUSES), name="ck_visit_records_status"),
+        CheckConstraint("meal_level BETWEEN 0 AND 4", name="ck_visit_records_meal_level"),
+        CheckConstraint(f"mood IS NULL OR {_one_of('mood', MOODS)}", name="ck_visit_records_mood"),
         Index("ix_visit_records_queue", "status", "available_at"),
         Index("ix_visit_records_recipient", "recipient_id", "visited_on"),
         Index("ix_visit_records_caregiver_created", "caregiver_id", "created_at"),
@@ -233,6 +242,9 @@ class VisitRecord(Base):
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 오늘 상태: 0 거의 못 드심 ~ 4 다 드심 / good·neutral·low (확정 때 요양보호사가 확인한 값)
+    meal_level: Mapped[int | None] = mapped_column(SmallInteger)
+    mood: Mapped[str | None] = mapped_column(Text)
     # 센터 확인 서명 (기관 담당자)
     reviewed_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -271,6 +283,10 @@ class RecordItem(Base):
             f"risk_tag IS NULL OR {_one_of('risk_tag', RISK_TAGS)}", name="ck_record_items_risk_tag"
         ),
         CheckConstraint(_one_of("origin", ORIGINS), name="ck_record_items_origin"),
+        CheckConstraint(
+            f"body_part IS NULL OR {_one_of('body_part', BODY_PARTS)}",
+            name="ck_record_items_body_part",
+        ),
         Index(
             "ix_record_items_content_trgm",
             "content",
@@ -288,6 +304,7 @@ class RecordItem(Base):
     evidence: Mapped[str | None] = mapped_column(Text)
     speaker_uncertain: Mapped[bool] = mapped_column(Boolean, default=False)
     risk_tag: Mapped[str | None] = mapped_column(Text)
+    body_part: Mapped[str | None] = mapped_column(Text)  # 불편·통증을 말한 부위 (좌우 구분 없음)
     origin: Mapped[str] = mapped_column(Text)
     position: Mapped[int] = mapped_column(Integer)
 
@@ -375,3 +392,44 @@ class AiUsage(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     kind: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Alert(Base):
+    """변화 알림(규칙)과 긴급 우려(요양보호사 제출). 같은 사유의 미처리 알림은 하나로 합친다."""
+
+    __tablename__ = "alerts"
+    __table_args__ = (
+        CheckConstraint(_one_of("kind", ALERT_KINDS), name="ck_alerts_kind"),
+        CheckConstraint("status IN ('open', 'resolved')", name="ck_alerts_status"),
+        CheckConstraint(
+            "resolution IS NULL OR resolution IN ('acted', 'false_alarm')",
+            name="ck_alerts_resolution",
+        ),
+        Index(
+            "uq_alerts_open",
+            "recipient_id",
+            "kind",
+            "key",
+            unique=True,
+            postgresql_where=text("status = 'open'"),
+        ),
+        Index("ix_alerts_recipient_status", "recipient_id", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    recipient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("recipients.id"))
+    kind: Mapped[str] = mapped_column(Text)
+    key: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, default="open")
+    # [{record_id, item_id, visited_on, text}]
+    evidence: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
+    note: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    resolution: Mapped[str | None] = mapped_column(Text)
+    resolution_note: Mapped[str | None] = mapped_column(Text)
+    resolved_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

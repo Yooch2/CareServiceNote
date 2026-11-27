@@ -1,7 +1,18 @@
 import { useRef, useState, type SubmitEvent } from "react";
 
 import { ApiError, postJson } from "@/lib/api";
-import { CATEGORY_LABEL, CATEGORY_ORDER, errorMessage, RISK_LABEL, TOPIC_LABEL } from "@/lib/labels";
+import {
+  BODY_PART_LABEL,
+  BODY_PARTS,
+  CATEGORY_LABEL,
+  CATEGORY_ORDER,
+  errorMessage,
+  MEAL_LABEL,
+  MOOD_LABEL,
+  MOODS,
+  RISK_LABEL,
+  TOPIC_LABEL,
+} from "@/lib/labels";
 import {
   accept,
   acceptFollowup,
@@ -16,10 +27,14 @@ import {
   remaining,
   restore,
   restoreFollowup,
+  acceptState,
+  setState,
+  stateFromDraft,
   writeFollowup,
   type Card,
+  type StateCard,
 } from "@/lib/review";
-import type { Category, VisitRecord } from "@/lib/types";
+import type { BodyPart, Category, Mood, VisitRecord } from "@/lib/types";
 import { CategoryHeading, TabbedSheet } from "./category";
 import { FollowupReview } from "./followup-review";
 import { Transcript } from "./transcript";
@@ -37,6 +52,7 @@ export function ReviewPanel({
 }) {
   const [cards, setCards] = useState(() => cardsFromDraft(record.draft));
   const [fcards, setFcards] = useState(() => followupCardsFromDraft(record.draft));
+  const [sc, setSc] = useState(() => stateFromDraft(record.draft));
   const [active, setActive] = useState<number | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +60,7 @@ export function ReviewPanel({
   const audioRef = useRef<HTMLAudioElement>(null);
   const nextKey = useRef(0);
   const segments = record.transcript_segments ?? [];
-  const left = remaining(cards, fcards);
+  const left = remaining(cards, fcards, sc);
   const missing = record.draft?.missing_topics ?? [];
 
   function play(index: number) {
@@ -71,7 +87,7 @@ export function ReviewPanel({
     setBusy(true);
     setError(null);
     try {
-      onConfirmed(await postJson<VisitRecord>(`/records/${record.id}/confirm`, buildConfirmBody(cards, fcards)));
+      onConfirmed(await postJson<VisitRecord>(`/records/${record.id}/confirm`, buildConfirmBody(cards, fcards, sc)));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "확정하지 못했습니다. 연결을 확인하고 다시 눌러 주세요.");
       setBusy(false);
@@ -118,6 +134,8 @@ export function ReviewPanel({
         onWrite={(id, text) => setFcards((f) => writeFollowup(f, id, text))}
         onEvidence={play}
       />
+
+      <StateSection sc={sc} onAccept={() => setSc(acceptState)} onChange={(change) => setSc((v) => setState(v, change))} />
 
       {CATEGORY_ORDER.map((category) => {
         const group = cards.filter((c) => c.category === category);
@@ -178,7 +196,7 @@ export function ReviewPanel({
           <p aria-live="polite" className={left > 0 ? "font-semibold text-follow" : "text-muted"}>
             {left > 0 ? `확인이 필요한 AI 항목 ${left}개` : "모든 AI 항목을 확인했습니다"}
           </p>
-          <Button onClick={confirm} disabled={!canConfirm(cards, fcards) || busy}>
+          <Button onClick={confirm} disabled={!canConfirm(cards, fcards, sc) || busy}>
             확정하기
           </Button>
         </div>
@@ -209,11 +227,12 @@ function ItemCard({
       category={card.category}
       className={`${dismissed ? "opacity-50" : ""} ${card.riskTag && !dismissed ? "outline-2 outline-risk/60" : ""}`}
     >
-      {(aiPending || card.state === "accepted" || card.riskTag || card.speakerUncertain) && (
+      {(aiPending || card.state === "accepted" || card.riskTag || card.bodyPart || card.speakerUncertain) && (
         <div className="mb-2 flex flex-wrap gap-1.5">
           {aiPending && <Badge tone="follow">AI 초안, 확인 필요</Badge>}
           {card.state === "accepted" && <Badge tone="pine">확인함</Badge>}
           {card.riskTag && <Badge tone="risk">{RISK_LABEL[card.riskTag]} 주의</Badge>}
+          {card.bodyPart && <Badge>{BODY_PART_LABEL[card.bodyPart]} 불편</Badge>}
           {card.speakerUncertain && <Badge>누가 한 말인지 불확실</Badge>}
         </div>
       )}
@@ -260,11 +279,12 @@ function EditCard({
   onCancel,
 }: {
   card: Card;
-  onSave: (change: { category: Category; content: string }) => void;
+  onSave: (change: { category: Category; content: string; bodyPart: BodyPart | null }) => void;
   onCancel: () => void;
 }) {
   const [category, setCategory] = useState(card.category);
   const [content, setContent] = useState(card.content);
+  const [bodyPart, setBodyPart] = useState<BodyPart | null>(card.bodyPart);
   return (
     <TabbedSheet category={category} className="flex flex-col gap-3">
       <select
@@ -287,8 +307,23 @@ function EditCard({
         maxLength={1000}
         className={TEXTAREA}
       />
+      <label className="flex flex-col gap-1 text-sm font-medium">
+        불편을 말한 부위
+        <select
+          value={bodyPart ?? ""}
+          onChange={(e) => setBodyPart((e.target.value || null) as BodyPart | null)}
+          className={`${SELECT} text-base font-normal`}
+        >
+          <option value="">없음</option>
+          {BODY_PARTS.map((b) => (
+            <option key={b} value={b}>
+              {BODY_PART_LABEL[b]}
+            </option>
+          ))}
+        </select>
+      </label>
       <div className="flex gap-2">
-        <Button onClick={() => onSave({ category, content })} disabled={!content.trim()}>
+        <Button onClick={() => onSave({ category, content, bodyPart })} disabled={!content.trim()}>
           저장
         </Button>
         <Button variant="ghost" onClick={onCancel}>
@@ -296,5 +331,76 @@ function EditCard({
         </Button>
       </div>
     </TabbedSheet>
+  );
+}
+
+/** 오늘 상태(식사량·기분). 변화 알림 규칙이 이 값을 쓴다. */
+function StateSection({
+  sc,
+  onAccept,
+  onChange,
+}: {
+  sc: StateCard;
+  onAccept: () => void;
+  onChange: (change: { mealLevel?: number | null; mood?: Mood | null }) => void;
+}) {
+  const pending = sc.state === "pending";
+  return (
+    <section aria-label="오늘 상태">
+      <Sheet className={pending ? "outline-2 outline-follow/50" : ""}>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h2 className="font-semibold">오늘 상태</h2>
+          {pending ? <Badge tone="follow">AI 제안, 확인 필요</Badge> : sc.suggested && <Badge tone="pine">확인함</Badge>}
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="flex flex-col gap-1 text-sm font-medium">
+            식사량
+            <select
+              value={sc.mealLevel ?? ""}
+              onChange={(e) => onChange({ mealLevel: e.target.value === "" ? null : Number(e.target.value) })}
+              className={`${SELECT} text-base font-normal`}
+            >
+              <option value="">언급 없음</option>
+              {MEAL_LABEL.map((label, level) => (
+                <option key={level} value={level}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-sm font-medium">
+            기분
+            <select
+              value={sc.mood ?? ""}
+              onChange={(e) => onChange({ mood: (e.target.value || null) as Mood | null })}
+              className={`${SELECT} text-base font-normal`}
+            >
+              <option value="">언급 없음</option>
+              {MOODS.map((m) => (
+                <option key={m} value={m}>
+                  {MOOD_LABEL[m]}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {[sc.mealEvidence, sc.moodEvidence].some(Boolean) && (
+          <p className="mt-3 text-muted">
+            <span className="sr-only">근거 </span>
+            {[sc.mealEvidence, sc.moodEvidence].filter(Boolean).map((e) => (
+              <span key={e} className="mr-2 bg-marker/70 box-decoration-clone px-0.5 text-ink">
+                “{e}”
+              </span>
+            ))}
+          </p>
+        )}
+        <p className="mt-2 text-sm text-muted">식사량과 기분은 변화 알림(식사량 감소)에 쓰입니다.</p>
+        {pending && (
+          <Button className="mt-3" onClick={onAccept}>
+            확인
+          </Button>
+        )}
+      </Sheet>
+    </section>
   );
 }

@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.main import app
-from app.models import GuardianLink, Invite, Recipient
+from app.models import Alert, GuardianLink, Invite, Recipient
 from app.security import hash_password
 from tests.helpers import (
     PASSWORD,
@@ -42,6 +42,7 @@ class World:
     invite: uuid.UUID
     link: uuid.UUID
     unassigned_id: uuid.UUID
+    alert: uuid.UUID
 
 
 def _build(db: Session) -> World:
@@ -77,6 +78,9 @@ def _build(db: Session) -> World:
     draft.audio_path = str(audio)
     db.commit()
     invite: Invite = make_invite(db, org.id, manager.id, "ACCESS-TEST1")
+    alert = Alert(recipient_id=recipient.id, kind="urgent", key="k", evidence=[], note="우려")
+    db.add(alert)
+    db.commit()
     return World(
         rid=recipient.id,
         confirmed=confirmed.id,
@@ -86,6 +90,7 @@ def _build(db: Session) -> World:
         invite=invite.id,
         link=link.id,
         unassigned_id=unassigned.id,
+        alert=alert.id,
     )
 
 
@@ -181,6 +186,18 @@ TABLE: list[tuple[str, str, Call, dict[str, int]]] = [
      {"manager": OK, "assigned": 403, "unassigned": 403, "other_manager": 404, "guardian": 403}),
     ("GET", "/org/reviews", lambda c, w: c.get("/org/reviews"),
      {"manager": OK, "assigned": 403, "unassigned": 403, "other_manager": OK, "guardian": 403}),
+    ("GET", "/recipients/{recipient_id}/alerts", lambda c, w: c.get(f"/recipients/{w.rid}/alerts"),
+     {"manager": OK, "assigned": OK, "unassigned": 404, "other_manager": 404, "guardian": 403}),
+    ("GET", "/recipients/{recipient_id}/trends", lambda c, w: c.get(f"/recipients/{w.rid}/trends"),
+     {"manager": OK, "assigned": OK, "unassigned": 404, "other_manager": 404, "guardian": 403}),
+    ("POST", "/recipients/{recipient_id}/concerns",
+     lambda c, w: c.post(f"/recipients/{w.rid}/concerns", json={"note": "걱정되는 점"}),
+     {"manager": 403, "assigned": OK, "unassigned": 404, "other_manager": 404, "guardian": 403}),
+    ("GET", "/org/alerts", lambda c, w: c.get("/org/alerts"),
+     {"manager": OK, "assigned": 403, "unassigned": 403, "other_manager": OK, "guardian": 403}),
+    ("POST", "/org/alerts/{alert_id}/resolve",
+     lambda c, w: c.post(f"/org/alerts/{w.alert}/resolve", json={"resolution": "acted"}),
+     {"manager": OK, "assigned": 403, "unassigned": 403, "other_manager": 404, "guardian": 403}),
     ("GET", "/guardian/home", lambda c, w: c.get("/guardian/home"),
      {"manager": 403, "assigned": 403, "unassigned": 403, "other_manager": 403, "guardian": OK}),
 ]  # fmt: skip

@@ -6,7 +6,7 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel
 
-from app.schemas import Category, RiskTag
+from app.schemas import BodyPart, Category, MealLevel, Mood, RiskTag
 
 Topic = Literal["meal", "toileting", "sleep", "mood"]
 TOPICS: tuple[Topic, ...] = ("meal", "toileting", "sleep", "mood")
@@ -32,6 +32,16 @@ class DraftItem(BaseModel):
     evidence: str
     speaker_uncertain: bool
     risk_tag: RiskTag | None
+    body_part: BodyPart | None = None
+
+
+class VisitState(BaseModel):
+    """오늘 상태: 식사량(0 거의 못 드심 ~ 4 다 드심)과 기분. 언급이 없으면 null."""
+
+    meal_level: MealLevel | None = None
+    meal_evidence: str | None = None
+    mood: Mood | None = None
+    mood_evidence: str | None = None
 
 
 class TopicMention(BaseModel):
@@ -51,6 +61,7 @@ class Classification(BaseModel):
     items: list[DraftItem]
     mentioned_topics: list[TopicMention]
     followup_results: list[FollowupResult] = []
+    state: VisitState = VisitState()
 
 
 @dataclass(frozen=True)

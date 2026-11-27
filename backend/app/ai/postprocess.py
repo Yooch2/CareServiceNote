@@ -15,6 +15,11 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _norm_quote(text: str) -> str:
+    """근거 구절용: 끝 문장부호는 무시한다 (전사문의 '하셨고,'를 '하셨고。'로 옮기는 경우)"""
+    return _norm(text).rstrip(".,!?~ ")
+
+
 def build_draft(
     transcript: Transcript,
     classification: Classification,
@@ -35,7 +40,7 @@ def build_draft(
         joined += _norm(seg.text)
 
     def locate(raw_evidence: str) -> dict[str, Any]:
-        evidence = _norm(raw_evidence)
+        evidence = _norm_quote(raw_evidence)
         segment_index: int | None = None
         if evidence and starts:
             pos = joined.find(evidence)
@@ -77,9 +82,22 @@ def build_draft(
     mentioned = {
         m.topic
         for m in classification.mentioned_topics
-        if _norm(m.evidence) and _norm(m.evidence) in full
+        if _norm_quote(m.evidence) and _norm_quote(m.evidence) in full
+    }
+    # 근거가 전사문에 없는 상태 값은 버린다
+    state = classification.state
+    meal_found = (
+        state.meal_level is not None and locate(state.meal_evidence or "")["evidence_found"]
+    )
+    mood_found = state.mood is not None and locate(state.mood_evidence or "")["evidence_found"]
+    state_out: dict[str, Any] = {
+        "meal_level": state.meal_level if meal_found else None,
+        "meal_evidence": state.meal_evidence if meal_found else None,
+        "mood": state.mood if mood_found else None,
+        "mood_evidence": state.mood_evidence if mood_found else None,
     }
     return {
+        "state": state_out,
         "items": items,
         "missing_topics": [t for t in TOPICS if t not in mentioned],
         "open_followups": list(followups.values()),

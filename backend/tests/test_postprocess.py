@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from app.ai.postprocess import build_draft
 from app.ai.types import (
     Classification,
@@ -6,6 +9,7 @@ from app.ai.types import (
     Segment,
     TopicMention,
     Transcript,
+    VisitState,
 )
 
 TRANSCRIPT = Transcript(
@@ -145,3 +149,45 @@ def test_evidence_matching_ignores_full_width_punctuation() -> None:
     )
     assert [i["evidence_found"] for i in draft["items"]] == [True, True]
     assert [i["segment_index"] for i in draft["items"]] == [0, 0]
+
+
+def test_state_kept_only_with_evidence_in_transcript() -> None:
+    classification = Classification(
+        items=[],
+        mentioned_topics=[],
+        state=VisitState(
+            meal_level=2,
+            meal_evidence="점심은 반 정도 드셨습니다",
+            mood="low",
+            mood_evidence="기운이 없어 보이셨어요",  # 전사문에 없음
+        ),
+    )
+    state = build_draft(TRANSCRIPT, classification)["state"]
+    assert (state["meal_level"], state["meal_evidence"]) == (2, "점심은 반 정도 드셨습니다")
+    assert (state["mood"], state["mood_evidence"]) == (None, None)
+
+
+def test_body_part_and_meal_level_validated() -> None:
+    bad_part = {
+        "category": "remark",
+        "content": "x",
+        "evidence": "x",
+        "speaker_uncertain": False,
+        "risk_tag": None,
+        "body_part": "elbow",
+    }
+    with pytest.raises(ValidationError):
+        DraftItem.model_validate(bad_part)
+    with pytest.raises(ValidationError):
+        VisitState(meal_level=5)
+
+
+def test_trailing_punctuation_in_evidence_is_ignored() -> None:
+    # 전사문은 '하셨어요.'인데 모델이 끝 부호를 바꿔 옮긴 경우
+    classification = Classification(
+        items=[_item("무릎이 아프다고 하셨어요。"), _item("점심은 반 정도 드셨습니다,")],
+        mentioned_topics=[],
+    )
+    items = build_draft(TRANSCRIPT, classification)["items"]
+    assert [i["evidence_found"] for i in items] == [True, True]
+    assert [i["segment_index"] for i in items] == [0, 1]

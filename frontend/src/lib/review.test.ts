@@ -15,6 +15,9 @@ import {
   remaining,
   restore,
   restoreFollowup,
+  setState,
+  stateFromDraft,
+  acceptState,
   writeFollowup,
 } from "./review.ts";
 import type { Draft } from "./types";
@@ -103,6 +106,7 @@ test("확정 요청 본문: 채택 항목과 삭제한 초안 번호", () => {
         evidence: "무릎이 좀 불편하다고",
         speaker_uncertain: false,
         risk_tag: "pain",
+        body_part: null,
       },
       {
         draft_index: null,
@@ -111,11 +115,14 @@ test("확정 요청 본문: 채택 항목과 삭제한 초안 번호", () => {
         evidence: null,
         speaker_uncertain: false,
         risk_tag: null,
+        body_part: null,
       },
     ],
     dismissed_draft_indexes: [1],
     followup_checks: [],
     dismissed_followup_items: [],
+    meal_level: null,
+    mood: null,
   });
 });
 
@@ -163,6 +170,8 @@ test("제안을 확인하면 결과만 있어도 확정할 수 있다", () => {
     dismissed_draft_indexes: [],
     followup_checks: [{ item_id: "f1", result: "아직 불편하다고 하심", evidence: "무릎이 불편" }],
     dismissed_followup_items: [],
+    meal_level: null,
+    mood: null,
   });
 });
 
@@ -177,6 +186,8 @@ test("제안을 삭제하면 삭제 목록에, 제안 없는 사항은 직접 �
     dismissed_draft_indexes: [],
     followup_checks: [{ item_id: "f2", result: "오늘은 집에서 쉬고 싶다고 하심", evidence: null }],
     dismissed_followup_items: ["f1"],
+    meal_level: null,
+    mood: null,
   });
   // 되돌리면 제안 있는 사항은 확인 필요, 없는 사항은 미입력으로
   fcards = restoreFollowup(restoreFollowup(fcards, "f1"), "f2");
@@ -194,4 +205,36 @@ test("제안을 고쳐 쓰면 근거는 유지하고 확인한 것으로 본다"
   fcards = writeFollowup(fcards, "f1", "조금 나아졌다고 하심");
   assert.deepEqual([fcards[0].state, fcards[0].result, fcards[0].evidence], ["accepted", "조금 나아졌다고 하심", "무릎이 불편"]);
   assert.equal(writeFollowup(fcards, "f2", "   "), fcards);
+});
+
+test("오늘 상태: AI 제안이 있으면 확인해야 확정, 바꾸면 확인한 것으로 본다", () => {
+  const draft: Draft = {
+    items: [
+      {
+        category: "remark",
+        content: "무릎이 불편하다",
+        evidence: "무릎이 불편하다고",
+        evidence_found: true,
+        segment_index: 0,
+        speaker_uncertain: false,
+        risk_tag: "pain",
+        body_part: "knee",
+      },
+    ],
+    missing_topics: [],
+    state: { meal_level: 2, meal_evidence: "반 정도 드셨습니다", mood: null, mood_evidence: null },
+  };
+  const cards = accept(cardsFromDraft(draft), "d0");
+  const sc = stateFromDraft(draft);
+  assert.equal(remaining(cards, [], sc), 1);
+  assert.equal(canConfirm(cards, [], sc), false);
+
+  const changed = setState(sc, { mood: "low" });
+  assert.equal(canConfirm(cards, [], changed), true);
+  const body = buildConfirmBody(cards, [], changed);
+  assert.deepEqual([body.meal_level, body.mood, body.items[0].body_part], [2, "low", "knee"]);
+  assert.equal(acceptState(sc).state, "accepted");
+
+  // 1~3단계 초안(state 없음)은 확인할 것이 없다
+  assert.equal(stateFromDraft({ items: [], missing_topics: [] }).state, "accepted");
 });

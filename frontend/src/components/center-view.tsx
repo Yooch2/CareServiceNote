@@ -4,8 +4,9 @@ import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 
 import { api, ApiError, postJson } from "@/lib/api";
-import { CATEGORY_LABEL, dateOnly, ROLE_LABEL } from "@/lib/labels";
-import type { Invite, InviteCreated, Member, ReviewQueueItem } from "@/lib/types";
+import { alertTitle, CATEGORY_LABEL, dateOnly, ROLE_LABEL } from "@/lib/labels";
+import type { Invite, InviteCreated, Member, OrgAlert, ReviewQueueItem } from "@/lib/types";
+import { AlertBody } from "./alerts-panel";
 import { useUser } from "./auth-gate";
 import { BackLink } from "./recipient-view";
 import { Badge, Button, Loading, Notice, PageTitle, Sheet } from "./ui";
@@ -42,6 +43,8 @@ export function NewInviteCode({ invite, who }: { invite: InviteCreated; who: str
 export function CenterView() {
   const user = useUser();
   const [reviews, setReviews] = useState<ReviewQueueItem[] | null>(null);
+  const [alerts, setAlerts] = useState<OrgAlert[] | null>(null);
+  const [resolved, setResolved] = useState<OrgAlert[]>([]);
   const [members, setMembers] = useState<Member[] | null>(null);
   const [invites, setInvites] = useState<Invite[] | null>(null);
   const [created, setCreated] = useState<InviteCreated | null>(null);
@@ -51,11 +54,19 @@ export function CenterView() {
   useLayoutEffect(() => () => setCreated(null), []);
 
   const load = useCallback(() => {
-    Promise.all([api<ReviewQueueItem[]>("/org/reviews"), api<Member[]>("/org/members"), api<Invite[]>("/org/invites")])
-      .then(([r, m, i]) => {
+    Promise.all([
+      api<ReviewQueueItem[]>("/org/reviews"),
+      api<Member[]>("/org/members"),
+      api<Invite[]>("/org/invites"),
+      api<OrgAlert[]>("/org/alerts"),
+      api<OrgAlert[]>("/org/alerts?status=resolved"),
+    ])
+      .then(([r, m, i, a, done]) => {
         setReviews(r);
         setMembers(m);
         setInvites(i);
+        setAlerts(a);
+        setResolved(done.slice(0, 5));
       })
       .catch((err: unknown) => setError(message(err)));
   }, []);
@@ -73,7 +84,7 @@ export function CenterView() {
   }
 
   if (user.role !== "manager") return <Notice tone="error">기관 담당자만 볼 수 있는 화면입니다.</Notice>;
-  if (!reviews || !members || !invites) return error ? <Notice tone="error">{error}</Notice> : <Loading />;
+  if (!reviews || !members || !invites || !alerts) return error ? <Notice tone="error">{error}</Notice> : <Loading />;
 
   return (
     <>
@@ -84,6 +95,45 @@ export function CenterView() {
           <Notice tone="error">{error}</Notice>
         </div>
       )}
+
+      <section aria-label="알림" className="mb-8">
+        <h2 className="mb-2 text-lg font-bold">
+          알림 <span className="font-normal text-muted">미처리 {alerts.length}건</span>
+        </h2>
+        {alerts.length === 0 ? (
+          <p className="text-muted">처리할 알림이 없습니다.</p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {alerts.map((a) => (
+              <li key={a.id}>
+                <AlertCard
+                  alert={a}
+                  onResolve={(resolution, note) => run(() => postJson(`/org/alerts/${a.id}/resolve`, { resolution, note }))}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+        {resolved.length > 0 && (
+          <details className="mt-3">
+            <summary className="cursor-pointer text-muted">최근 처리한 알림</summary>
+            <ul className="mt-2 flex flex-col divide-y divide-line overflow-hidden rounded-lg border border-line bg-sheet">
+              {resolved.map((a) => (
+                <li key={a.id} className="px-4 py-2 text-sm">
+                  <span className="font-semibold">
+                    {a.recipient_name} · {alertTitle(a.kind, a.key)}
+                  </span>{" "}
+                  <Badge tone={a.resolution === "acted" ? "pine" : "neutral"}>{a.resolution === "acted" ? "조치함" : "오탐"}</Badge>
+                  <span className="block text-muted">
+                    {a.resolved_by_name} · {a.resolved_at && dateOnly(a.resolved_at)}
+                    {a.resolution_note && ` · ${a.resolution_note}`}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </section>
 
       <section aria-label="확인 대기" className="mb-8">
         <h2 className="mb-2 text-lg font-bold">
@@ -178,5 +228,40 @@ export function CenterView() {
         <p className="mt-2 text-sm text-muted">비활성화하면 그 계정은 바로 로그인과 열람이 막힙니다.</p>
       </section>
     </>
+  );
+}
+
+/** 미처리 알림 한 건: 근거를 보고 조치함/오탐으로 처리한다 */
+function AlertCard({
+  alert,
+  onResolve,
+}: {
+  alert: OrgAlert;
+  onResolve: (resolution: "acted" | "false_alarm", note: string) => void;
+}) {
+  const [note, setNote] = useState("");
+  return (
+    <div className="rounded-r-lg border-l-4 border-risk bg-sheet px-4 py-3">
+      <p className="text-sm text-muted">
+        {alert.recipient_name} · {dateOnly(alert.created_at)}
+        {alert.created_by_name && ` · ${alert.created_by_name} 올림`}
+      </p>
+      <AlertBody alert={alert} />
+      <label className="mt-3 flex flex-col gap-1 text-sm font-medium">
+        처리 메모 (선택)
+        <input
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          maxLength={500}
+          className="min-h-11 rounded-xl border border-line bg-sheet px-3 text-base font-normal"
+        />
+      </label>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <Button onClick={() => onResolve("acted", note)}>조치함</Button>
+        <Button variant="secondary" onClick={() => onResolve("false_alarm", note)}>
+          오탐
+        </Button>
+      </div>
+    </div>
   );
 }

@@ -1,4 +1,4 @@
-import type { Category, ConfirmBody, Draft, RiskTag } from "./types";
+import type { BodyPart, Category, ConfirmBody, Draft, Mood, RiskTag } from "./types";
 
 export type CardState = "pending" | "accepted" | "dismissed";
 
@@ -13,6 +13,7 @@ export interface Card {
   segmentIndex: number | null;
   speakerUncertain: boolean;
   riskTag: RiskTag | null;
+  bodyPart: BodyPart | null;
   state: CardState;
 }
 
@@ -27,6 +28,7 @@ export function cardsFromDraft(draft: Draft | null): Card[] {
     segmentIndex: item.segment_index,
     speakerUncertain: item.speaker_uncertain,
     riskTag: item.risk_tag,
+    bodyPart: item.body_part ?? null,
     state: "pending",
   }));
 }
@@ -43,11 +45,12 @@ export const restore = (cards: Card[], key: string) => update(cards, key, { stat
 export function edit(
   cards: Card[],
   key: string,
-  change: { category: Category; content: string },
+  change: { category: Category; content: string; bodyPart?: BodyPart | null },
 ): Card[] {
   const content = change.content.trim();
   if (!content) return cards;
-  return update(cards, key, { category: change.category, content, state: "accepted" });
+  const bodyPart = change.bodyPart === undefined ? {} : { bodyPart: change.bodyPart };
+  return update(cards, key, { category: change.category, content, ...bodyPart, state: "accepted" });
 }
 
 export function addHuman(
@@ -70,6 +73,7 @@ export function addHuman(
       segmentIndex: null,
       speakerUncertain: false,
       riskTag: null,
+      bodyPart: null,
       state: "accepted",
     },
   ];
@@ -145,15 +149,51 @@ export function writeFollowup(fcards: FollowupCard[], id: string, text: string):
   return updateFollowup(fcards, id, { result, state: "accepted" });
 }
 
-export const remaining = (cards: Card[], fcards: FollowupCard[] = []) =>
-  cards.filter((c) => c.state === "pending").length + fcards.filter((f) => f.state === "pending").length;
+/**
+ * 오늘 상태(식사량·기분). AI가 하나라도 제안했으면 확인 필요(pending)에서 시작한다.
+ * 고르거나 바꾸면 확인한 것으로 본다. 언급이 없으면 비워 둔 채로 확정해도 된다.
+ */
+export interface StateCard {
+  mealLevel: number | null;
+  mood: Mood | null;
+  mealEvidence: string | null;
+  moodEvidence: string | null;
+  suggested: boolean;
+  state: "pending" | "accepted";
+}
 
-export const canConfirm = (cards: Card[], fcards: FollowupCard[] = []) =>
-  remaining(cards, fcards) === 0 &&
+export function stateFromDraft(draft: Draft | null): StateCard {
+  const s = draft?.state;
+  const suggested = s?.meal_level != null || s?.mood != null;
+  return {
+    mealLevel: s?.meal_level ?? null,
+    mood: s?.mood ?? null,
+    mealEvidence: s?.meal_evidence ?? null,
+    moodEvidence: s?.mood_evidence ?? null,
+    suggested,
+    state: suggested ? "pending" : "accepted",
+  };
+}
+
+export const acceptState = (sc: StateCard): StateCard => ({ ...sc, state: "accepted" });
+
+export function setState(sc: StateCard, change: { mealLevel?: number | null; mood?: Mood | null }): StateCard {
+  return { ...sc, ...change, state: "accepted" };
+}
+
+const NO_STATE: StateCard = stateFromDraft(null);
+
+export const remaining = (cards: Card[], fcards: FollowupCard[] = [], sc: StateCard = NO_STATE) =>
+  cards.filter((c) => c.state === "pending").length +
+  fcards.filter((f) => f.state === "pending").length +
+  (sc.state === "pending" ? 1 : 0);
+
+export const canConfirm = (cards: Card[], fcards: FollowupCard[] = [], sc: StateCard = NO_STATE) =>
+  remaining(cards, fcards, sc) === 0 &&
   (cards.some((c) => c.state === "accepted") || fcards.some((f) => f.state === "accepted"));
 
-export function buildConfirmBody(cards: Card[], fcards: FollowupCard[] = []): ConfirmBody {
-  if (remaining(cards, fcards) > 0) throw new Error("확인하지 않은 AI 항목이 있습니다");
+export function buildConfirmBody(cards: Card[], fcards: FollowupCard[] = [], sc: StateCard = NO_STATE): ConfirmBody {
+  if (remaining(cards, fcards, sc) > 0) throw new Error("확인하지 않은 AI 항목이 있습니다");
   return {
     items: cards
       .filter((c) => c.state === "accepted")
@@ -164,6 +204,7 @@ export function buildConfirmBody(cards: Card[], fcards: FollowupCard[] = []): Co
         evidence: c.evidence,
         speaker_uncertain: c.speakerUncertain,
         risk_tag: c.riskTag,
+        body_part: c.bodyPart,
       })),
     dismissed_draft_indexes: cards.flatMap((c) =>
       c.state === "dismissed" && c.draftIndex !== null ? [c.draftIndex] : [],
@@ -172,5 +213,7 @@ export function buildConfirmBody(cards: Card[], fcards: FollowupCard[] = []): Co
       .filter((f) => f.state === "accepted")
       .map((f) => ({ item_id: f.itemId, result: f.result, evidence: f.evidence })),
     dismissed_followup_items: fcards.filter((f) => f.state === "dismissed").map((f) => f.itemId),
+    meal_level: sc.mealLevel,
+    mood: sc.mood,
   };
 }
