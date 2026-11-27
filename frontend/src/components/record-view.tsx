@@ -65,7 +65,7 @@ export function RecordView() {
         <>
           <ReviewSignature record={record} onSigned={setRecord} />
           <GuardianSummaryCard recordId={record.id} />
-          <ConfirmedView record={record} />
+          <ConfirmedView record={record} onChange={setRecord} />
         </>
       )}
     </>
