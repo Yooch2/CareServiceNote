@@ -8,6 +8,7 @@ import { PROCESSING, STATUS_LABEL } from "@/lib/labels";
 import type { VisitRecord } from "@/lib/types";
 import { useUser } from "./auth-gate";
 import { ConfirmedView } from "./confirmed-view";
+import { GuardianSummaryCard } from "./guardian-summary-card";
 import { BackLink, statusTone } from "./recipient-view";
 import { ReviewPanel } from "./review-panel";
 import { Badge, Button, Loading, Notice, PageTitle } from "./ui";
@@ -63,6 +64,7 @@ export function RecordView() {
       {record.status === "confirmed" && (
         <>
           <ReviewSignature record={record} onSigned={setRecord} />
+          <GuardianSummaryCard recordId={record.id} />
           <ConfirmedView record={record} />
         </>
       )}

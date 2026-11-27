@@ -416,10 +416,17 @@ class AlertOut(BaseModel):
     resolved_at: datetime | None
 
 
+class AlertGuardianOut(BaseModel):
+    guardian_id: uuid.UUID
+    name: str
+    categories: list[Category]
+
+
 class OrgAlertOut(AlertOut):
     recipient_name: str
     created_by_name: str | None
     resolved_by_name: str | None
+    guardians: list[AlertGuardianOut]  # 안내문을 보낼 수 있는 보호자 (활성 연결)
 
 
 class ConcernIn(BaseModel):
@@ -431,6 +438,8 @@ class ResolveIn(BaseModel):
     note: str | None = Field(default=None, max_length=500)
     # 보호자에게 보낼 안내문 (선택). 알림 근거·우려 원문은 보내지 않는다
     guardian_message: str | None = Field(default=None, max_length=500)
+    # 안내문을 받을 보호자 계정 id. 열람 범위가 보호자마다 달라 담당자가 직접 고른다
+    guardian_ids: list[uuid.UUID] = Field(default_factory=list, max_length=20)
 
 
 class TrendPointOut(BaseModel):

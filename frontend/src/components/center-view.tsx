@@ -108,7 +108,9 @@ export function CenterView() {
               <li key={a.id}>
                 <AlertCard
                   alert={a}
-                  onResolve={(resolution, note) => run(() => postJson(`/org/alerts/${a.id}/resolve`, { resolution, note }))}
+                  onResolve={(resolution, note, guardian_message, guardian_ids) =>
+                    run(() => postJson(`/org/alerts/${a.id}/resolve`, { resolution, note, guardian_message, guardian_ids }))
+                  }
                 />
               </li>
             ))}
@@ -237,9 +239,12 @@ function AlertCard({
   onResolve,
 }: {
   alert: OrgAlert;
-  onResolve: (resolution: "acted" | "false_alarm", note: string) => void;
+  onResolve: (resolution: "acted" | "false_alarm", note: string, guardianMessage: string, guardianIds: string[]) => void;
 }) {
   const [note, setNote] = useState("");
+  const [guardianMessage, setGuardianMessage] = useState("");
+  const [guardianIds, setGuardianIds] = useState<string[]>([]);
+  const sharing = guardianMessage.trim() !== "";
   return (
     <div className="rounded-r-lg border-l-4 border-risk bg-sheet px-4 py-3">
       <p className="text-sm text-muted">
@@ -256,9 +261,47 @@ function AlertCard({
           className="min-h-11 rounded-xl border border-line bg-sheet px-3 text-base font-normal"
         />
       </label>
+      <label className="mt-2 flex flex-col gap-1 text-sm font-medium">
+        보호자에게 보낼 안내 (선택)
+        <textarea
+          value={guardianMessage}
+          onChange={(e) => setGuardianMessage(e.target.value)}
+          maxLength={500}
+          rows={2}
+          placeholder="예: 내일 병원 진료를 예약해 두었습니다."
+          className="rounded-xl border border-line bg-sheet p-3 text-base font-normal"
+        />
+        <span className="font-normal text-muted">이 문장만 보호자 화면에 나갑니다. 알림 내용과 메모는 보내지 않습니다.</span>
+      </label>
+      {sharing && (
+        <fieldset className="mt-2">
+          <legend className="text-sm font-medium">받을 보호자 (열람 범위를 보고 골라 주세요)</legend>
+          {alert.guardians.length === 0 && <p className="text-sm text-muted">연결된 보호자가 없습니다.</p>}
+          {alert.guardians.map((g) => (
+            <label key={g.guardian_id} className="mt-1 flex min-h-11 items-center gap-2">
+              <input
+                type="checkbox"
+                className="size-5 accent-pine"
+                checked={guardianIds.includes(g.guardian_id)}
+                onChange={(e) =>
+                  setGuardianIds((ids) => (e.target.checked ? [...ids, g.guardian_id] : ids.filter((i) => i !== g.guardian_id)))
+                }
+              />
+              {g.name}
+              <span className="text-sm text-muted">({g.categories.map((c) => CATEGORY_LABEL[c]).join(", ")})</span>
+            </label>
+          ))}
+        </fieldset>
+      )}
       <div className="mt-2 flex flex-wrap gap-2">
-        <Button onClick={() => onResolve("acted", note)}>조치함</Button>
-        <Button variant="secondary" onClick={() => onResolve("false_alarm", note)}>
+        <Button disabled={sharing && guardianIds.length === 0} onClick={() => onResolve("acted", note, guardianMessage, guardianIds)}>
+          조치함
+        </Button>
+        <Button
+          variant="secondary"
+          disabled={sharing && guardianIds.length === 0}
+          onClick={() => onResolve("false_alarm", note, guardianMessage, guardianIds)}
+        >
           오탐
         </Button>
       </div>

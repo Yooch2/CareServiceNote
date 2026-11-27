@@ -436,6 +436,8 @@ class Alert(Base):
     # 처리 결과를 보호자에게 알릴 때 담당자가 따로 쓴 안내문 (알림 원문은 보내지 않는다)
     guardian_message: Mapped[str | None] = mapped_column(Text)
     shared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 안내문을 받을 보호자 (담당자가 열람 범위를 보고 직접 고른다)
+    shared_with: Mapped[list[uuid.UUID] | None] = mapped_column(ARRAY(UUID(as_uuid=True)))
 
 
 class GuardianSummary(Base):

@@ -174,24 +174,33 @@ def test_resolved_alert_shares_only_guardian_message(
 ) -> None:
     rid, _ = _world(client, db)
     colleague(client, other_client, assign_to=rid)
-    family = _guardian(client, rid, "family01", ["remark"])
+    family = _guardian(client, rid, "family01", ["remark", "observation"])
+    narrow = _guardian(client, rid, "family02", ["remark"])
     other_client.post(f"/recipients/{rid}/concerns", json={"note": "숨이 차 보이심 (내부 메모)"})
     other_client.post(f"/recipients/{rid}/concerns", json={"note": "두 번째 우려"})
     first, second = client.get("/org/alerts").json()
+    # 인박스에 보호자별 열람 범위가 같이 온다
+    assert sorted(sorted(g["categories"]) for g in first["guardians"]) == [
+        ["observation", "remark"],
+        ["remark"],
+    ]
+    targets = [g["guardian_id"] for g in first["guardians"] if "observation" in g["categories"]]
 
-    client.post(
-        f"/org/alerts/{first['id']}/resolve",
-        json={
-            "resolution": "acted",
-            "note": "내부 처리 메모",
-            "guardian_message": " 병원 진료를 예약했습니다. ",
-        },
-    )
+    url = f"/org/alerts/{first['id']}/resolve"
+    message = {"resolution": "acted", "guardian_message": " 병원 진료를 예약했습니다. "}
+    # 안내문이 있으면 받을 보호자를 골라야 하고, 이 수급자의 보호자만 고를 수 있다
+    assert client.post(url, json=message).status_code == 422
+    stranger = {**message, "guardian_ids": [str(uuid.uuid4())]}
+    assert client.post(url, json=stranger).status_code == 422
+    done = client.post(url, json={**message, "note": "내부 처리 메모", "guardian_ids": targets})
+    assert done.status_code == 200
     client.post(f"/org/alerts/{second['id']}/resolve", json={"resolution": "false_alarm"})
+
     res = family.get("/guardian/home")
     assert [n["message"] for n in res.json()["notices"]] == ["병원 진료를 예약했습니다."]
     for secret in ("숨이 차", "내부 처리 메모", "두 번째 우려"):
         assert secret not in res.text
+    assert narrow.get("/guardian/home").json()["notices"] == []  # 고르지 않은 보호자는 못 봄
 
 
 def test_messages(client: TestClient, other_client: TestClient, db: Session) -> None:

@@ -291,8 +291,11 @@ export interface ReviewQueueItem {
 export interface GuardianHome {
   recipient_name: string;
   categories: Category[];
+  sessions: { started_at: string; ended_at: string | null }[];
+  notices: { message: string; shared_at: string }[];
   records: {
     visited_on: string;
+    summary: string[];
     items: { category: Category; content: string }[];
     checks: { followup_content: string; result: string }[];
   }[];
@@ -319,6 +322,7 @@ export interface Alert {
 
 export interface OrgAlert extends Alert {
   recipient_name: string;
+  guardians: { guardian_id: string; name: string; categories: Category[] }[];
   created_by_name: string | null;
   resolved_by_name: string | null;
 }
@@ -328,4 +332,32 @@ export interface TrendPoint {
   visited_on: string;
   meal_level: number | null;
   mood: Mood | null;
+}
+
+// --- 5단계: 보호자 하루 요약 · 방문 시작/종료 · 업무 메시지 ---
+
+export interface GuardianSummary {
+  status: "draft" | "approved";
+  sentences: { text: string; item_ids: string[]; categories: Category[]; edited: boolean }[];
+  created_at: string;
+  updated_at: string;
+  approved_at: string | null;
+  approver_name: string | null;
+}
+
+export interface VisitSession {
+  id: string;
+  caregiver_id: string;
+  caregiver_name: string;
+  started_at: string;
+  ended_at: string | null;
+}
+
+export interface Message {
+  id: string;
+  author_id: string;
+  author_name: string;
+  author_role: Role;
+  body: string;
+  created_at: string;
 }

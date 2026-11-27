@@ -81,7 +81,7 @@ def guardian_home(db: DbSession, user: GuardianUser) -> GuardianHomeOut:
         select(Alert)
         .where(
             Alert.recipient_id == link.recipient_id,
-            Alert.shared_at.is_not(None),
+            Alert.shared_with.contains([user.id]),  # 담당자가 이 보호자를 고른 안내만
             Alert.shared_at >= since,
         )
         .order_by(Alert.shared_at.desc())

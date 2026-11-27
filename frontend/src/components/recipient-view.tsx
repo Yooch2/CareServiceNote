@@ -9,6 +9,7 @@ import { STATUS_LABEL } from "@/lib/labels";
 import type { Recipient, RecordStatus, RecordSummary } from "@/lib/types";
 import { ConcernForm, RecipientAlerts, Trends } from "./alerts-panel";
 import { useUser } from "./auth-gate";
+import { Messages, VisitBar } from "./visit-panel";
 import { HandoverPanel } from "./handover-panel";
 import { RecordSearch } from "./record-search";
 import { Badge, Loading, Notice, PageTitle, type Tone } from "./ui";
@@ -64,6 +65,7 @@ export function RecipientView() {
           </span>
         </Link>
       )}
+      {user.role === "caregiver" && <VisitBar recipientId={id} />}
       {user.role === "caregiver" &&
         (consented ? (
           <Link
@@ -83,6 +85,9 @@ export function RecipientView() {
         {user.role === "caregiver" && consented && (
           <ConcernForm recipientId={id} onSent={() => setAlertsVersion((n) => n + 1)} />
         )}
+      </div>
+      <div className="mt-8">
+        <Messages recipientId={id} />
       </div>
       <div className="mt-8">
         <RecordSearch recipientId={id} />
