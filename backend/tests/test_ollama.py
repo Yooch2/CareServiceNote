@@ -1,4 +1,5 @@
 import json
+from datetime import date
 
 import httpx
 import pytest
@@ -6,6 +7,7 @@ import pytest
 from app.ai.errors import PermanentAIError, TransientAIError
 from app.ai.fake import FAKE_CLASSIFICATION, FAKE_TRANSCRIPT
 from app.ai.local import OllamaClassifier
+from app.ai.types import OpenFollowup
 
 
 def _classifier(transport: httpx.MockTransport) -> OllamaClassifier:
@@ -56,3 +58,19 @@ def test_invalid_json_twice_is_permanent() -> None:
     reply = httpx.Response(200, json={"message": {"content": '{"items": 3}'}})
     with pytest.raises(PermanentAIError):
         _classifier(httpx.MockTransport(lambda _: reply)).classify(FAKE_TRANSCRIPT)
+
+
+def test_previous_followups_are_sent_without_ids() -> None:
+    seen: dict[str, object] = {}
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen.update(json.loads(request.content))
+        return httpx.Response(
+            200, json={"message": {"content": FAKE_CLASSIFICATION.model_dump_json()}}
+        )
+
+    followups = [OpenFollowup("F1", "무릎 상태 다시 확인", date(2026, 11, 20))]
+    _classifier(httpx.MockTransport(handle)).classify(FAKE_TRANSCRIPT, followups)
+    messages = seen["messages"]
+    assert isinstance(messages, list)
+    assert "F1. 무릎 상태 다시 확인 (2026-11-20)" in messages[1]["content"]

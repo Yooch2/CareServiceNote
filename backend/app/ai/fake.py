@@ -1,8 +1,20 @@
+import re
 from collections.abc import Sequence
 from pathlib import Path
 
+from pydantic import BaseModel
+
 from app.ai.errors import AIError
-from app.ai.types import Classification, DraftItem, Segment, TopicMention, Transcript
+from app.ai.summary import SummaryOut, SummarySentence
+from app.ai.types import (
+    Classification,
+    DraftItem,
+    FollowupResult,
+    OpenFollowup,
+    Segment,
+    TopicMention,
+    Transcript,
+)
 
 FAKE_TRANSCRIPT = Transcript(
     text=(
@@ -69,13 +81,41 @@ class FakeTranscriber:
         return FAKE_TRANSCRIPT
 
 
+FAKE_FOLLOWUP_RESULT = "무릎은 아직 불편하다고 하심"
+FAKE_FOLLOWUP_EVIDENCE = "오른쪽 무릎이 좀 불편하다고 하셨어요"
+
+
 class FakeClassifier:
+    """분류와 요약을 흉내 낸다. 이전 확인 사항이 있으면 첫 번째 사항에 대한 결과를 하나 낸다."""
+
     def __init__(self, failures: Sequence[AIError] = ()) -> None:
         self.failures = list(failures)
         self.calls = 0
+        self.last_followups: list[OpenFollowup] = []
 
-    def classify(self, transcript: Transcript) -> Classification:
+    def classify(
+        self, transcript: Transcript, followups: Sequence[OpenFollowup] = ()
+    ) -> Classification:
+        self.calls += 1
+        self.last_followups = list(followups)
+        if self.failures:
+            raise self.failures.pop(0)
+        if not followups:
+            return FAKE_CLASSIFICATION
+        result = FollowupResult(
+            ref=followups[0].ref, result=FAKE_FOLLOWUP_RESULT, evidence=FAKE_FOLLOWUP_EVIDENCE
+        )
+        return FAKE_CLASSIFICATION.model_copy(update={"followup_results": [result]})
+
+    def generate[T: BaseModel](self, system: str, user: str, schema: type[T]) -> T:
         self.calls += 1
         if self.failures:
             raise self.failures.pop(0)
-        return FAKE_CLASSIFICATION
+        if schema is SummaryOut:
+            # 입력 앞의 두 항목을 그대로 한 문장씩 옮긴다
+            lines = re.findall(r"^(I\d+)\. \[[^\]]*\] \[[^\]]*\] (.+)$", user, re.M)
+            sentences = [SummarySentence(text=text, refs=[ref]) for ref, text in lines[:2]]
+            return schema.model_validate(SummaryOut(sentences=sentences).model_dump())
+        if schema is Classification:
+            return schema.model_validate(FAKE_CLASSIFICATION.model_dump())
+        raise NotImplementedError(schema.__name__)

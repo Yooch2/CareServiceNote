@@ -1,4 +1,6 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Literal, Protocol
 
@@ -37,9 +39,27 @@ class TopicMention(BaseModel):
     evidence: str
 
 
+class FollowupResult(BaseModel):
+    """이전 방문의 확인 사항(ref: F1, F2 ...)에 대해 이번 녹음에서 찾은 답"""
+
+    ref: str
+    result: str
+    evidence: str
+
+
 class Classification(BaseModel):
     items: list[DraftItem]
     mentioned_topics: list[TopicMention]
+    followup_results: list[FollowupResult] = []
+
+
+@dataclass(frozen=True)
+class OpenFollowup:
+    """LLM에 넘기는 이전 확인 사항. 이름·UUID 없이 참조 번호와 내용만."""
+
+    ref: str
+    content: str
+    visited_on: date
 
 
 class Transcriber(Protocol):
@@ -47,4 +67,12 @@ class Transcriber(Protocol):
 
 
 class Classifier(Protocol):
-    def classify(self, transcript: Transcript) -> Classification: ...
+    def classify(
+        self, transcript: Transcript, followups: Sequence[OpenFollowup] = ()
+    ) -> Classification: ...
+
+
+class StructuredLLM(Protocol):
+    """시스템·사용자 메시지를 보내 스키마에 맞는 응답을 받는다 (형식이 틀리면 한 번 재요청)."""
+
+    def generate[T: BaseModel](self, system: str, user: str, schema: type[T]) -> T: ...

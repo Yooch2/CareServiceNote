@@ -1,3 +1,7 @@
+from collections.abc import Sequence
+
+from app.ai.types import OpenFollowup
+
 CLASSIFY_SYSTEM = """너는 방문요양 기록 정리를 돕는다. 요양보호사가 방문 직후 말로 남긴 기록의 전사문을 읽고 항목으로 나눈다.
 
 분류
@@ -11,7 +15,8 @@ CLASSIFY_SYSTEM = """너는 방문요양 기록 정리를 돕는다. 요양보�
 3. 낙상, 투약, 통증과 관련된 항목은 risk_tag를 fall, medication, pain 중 하나로 표시한다. 위험한지 판단하거나 조언하지 않는다. 관련이 없으면 null.
 4. 누가 한 말인지 분명하지 않으면 speaker_uncertain을 true로 한다.
 5. mentioned_topics에는 전사문에서 실제로 언급된 주제만 넣고, evidence에 그 주제가 나온 전사문 구절을 그대로 옮긴다. 주제: meal(식사), toileting(배변), sleep(수면), mood(기분). 언급이 없는 주제는 넣지 않는다.
-6. 지정된 JSON 형식으로만 답한다."""  # noqa: E501
+6. 사용자 메시지에 '이전 방문에서 확인하기로 한 사항'(F1, F2 ...)이 있으면, 전사문에서 그 사항에 대한 답을 찾는다. 답이 있으면 followup_results에 ref(F번호), result(확인한 결과를 짧게), evidence(답이 된 전사문 구절을 그대로)를 넣는다. 답이 없는 사항은 넣지 않는다. 이전 확인 사항에 대한 답은 items에 따로 넣지 않아도 된다.
+7. 지정된 JSON 형식으로만 답한다."""  # noqa: E501
 
 TRANSCRIBE_PROMPT = """이 음성은 방문요양 요양보호사가 방문 직후 남긴 한국어 기록이다.
 들리는 그대로 전사한다. 내용을 고치거나 요약하거나 덧붙이지 않는다.
@@ -19,5 +24,9 @@ TRANSCRIBE_PROMPT = """이 음성은 방문요양 요양보호사가 방문 직�
 알아들을 수 없는 부분은 [불명확]으로 쓴다."""  # noqa: E501
 
 
-def classify_user_message(text: str) -> str:
-    return f"전사문:\n{text}"
+def classify_user_message(text: str, followups: Sequence[OpenFollowup] = ()) -> str:
+    message = f"전사문:\n{text}"
+    if followups:
+        lines = "\n".join(f"{f.ref}. {f.content} ({f.visited_on.isoformat()})" for f in followups)
+        message += f"\n\n이전 방문에서 확인하기로 한 사항:\n{lines}"
+    return message

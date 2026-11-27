@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -9,7 +10,7 @@ from pydantic import BaseModel
 from app.ai.errors import PermanentAIError, TransientAIError
 from app.ai.prompts import CLASSIFY_SYSTEM, TRANSCRIBE_PROMPT, classify_user_message
 from app.ai.structured import parse_with_retry
-from app.ai.types import Classification, Segment, Transcript
+from app.ai.types import Classification, OpenFollowup, Segment, Transcript
 from app.audio_store import MEDIA_TYPES
 
 
@@ -68,10 +69,11 @@ class GeminiAI:
         segments = [Segment(s.start_ms, s.end_ms, s.text.strip()) for s in out.segments]
         return Transcript(text, segments, approximate_times=True)
 
-    def classify(self, transcript: Transcript) -> Classification:
-        return parse_with_retry(
-            lambda: self._generate(
-                classify_user_message(transcript.text), Classification, CLASSIFY_SYSTEM
-            ),
-            Classification,
-        )
+    def classify(
+        self, transcript: Transcript, followups: Sequence[OpenFollowup] = ()
+    ) -> Classification:
+        user = classify_user_message(transcript.text, followups)
+        return self.generate(CLASSIFY_SYSTEM, user, Classification)
+
+    def generate[T: BaseModel](self, system: str, user: str, schema: type[T]) -> T:
+        return parse_with_retry(lambda: self._generate(user, schema, system), schema)

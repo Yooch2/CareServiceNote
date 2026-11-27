@@ -9,6 +9,7 @@ from google.genai import errors
 from app.ai.errors import PermanentAIError, TransientAIError
 from app.ai.fake import FAKE_CLASSIFICATION, FAKE_TRANSCRIPT
 from app.ai.gemini import GeminiAI
+from app.ai.summary import SummaryOut
 
 
 class FakeModels:
@@ -81,3 +82,11 @@ def test_empty_transcript_is_permanent(tmp_path: Path) -> None:
 def test_missing_key_is_permanent() -> None:
     with pytest.raises(PermanentAIError):
         GeminiAI("", "gemini-test")
+
+
+def test_generate_uses_given_schema_and_system() -> None:
+    ai, models = _ai(['{"sentences": [{"text": "무릎 불편 반복", "refs": ["I1"]}]}'])
+    out = ai.generate("시스템", "사용자", SummaryOut)
+    assert out.sentences[0].refs == ["I1"]
+    config = models.calls[0]["config"]
+    assert config.system_instruction == "시스템" and config.response_schema is SummaryOut
