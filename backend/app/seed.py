@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
+from app.demo_history import seed_history
 from app.models import Assignment, Consent, GuardianLink, Organization, Recipient, User
 from app.security import hash_password
 
@@ -64,6 +65,9 @@ def seed(session: Session) -> None:
                 categories=GUARDIAN_CATEGORIES,
             )
         )
+    session.flush()
+    # 데모를 열자마자 볼거리가 있도록 김순자(가상)에게 2주 가상 이력
+    seed_history(session, guardian_of, users[DEMO_LOGIN], users["manager"], family)
     session.commit()
 
 

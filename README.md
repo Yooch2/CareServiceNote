@@ -2,8 +2,14 @@
 
 > 오늘의 기록을 다음 돌봄으로
 
-방문요양 요양보호사가 방문 직후 남긴 짧은 음성 기록을 AI가 **수급자의 말씀 · 관찰 · 다음 확인 사항**으로 정리하고,
-요양보호사가 확정한 기록을 다음 방문 전 확인, 담당자 인계, 후속 확인으로 이어 주는 서비스입니다.
+방문요양 요양보호사가 방문 직후 남긴 **1분 음성 기록**을 AI가 수급자의 **말씀 · 관찰 · 다음 확인**으로 정리하고, 요양보호사가 확인해 확정한 기록을 **다음 방문 전 확인 · 담당자 인계 · 후속 확인 · 변화 알림 · 보호자 공유**로 이어 주는 서비스입니다. 모든 데이터는 가상입니다.
+
+<p>
+  <img src="docs/images/00-hero.png" width="200" alt="방문 전 확인: 변화 알림, 남은 확인 사항">
+  <img src="docs/images/04-review.png" width="200" alt="AI 초안 검토: 근거 구절 강조">
+  <img src="docs/images/24-demo-center.png" width="200" alt="센터 관리: 변화 알림 인박스">
+  <img src="docs/images/25-demo-family.png" width="200" alt="보호자: 승인된 하루 요약, 센터 안내">
+</p>
 
 ## 왜 만들었나
 
@@ -11,21 +17,82 @@
 - 요양보호사가 바뀌면 수급자의 생활 습관과 요청이 새 담당자에게 잘 전달되지 않고, 보호자는 같은 설명을 반복하게 됨
 - 방문요양 평가 기준상 직원 변경 시 인계와 급여 개시 후 14일 이내 상담 기록 확인이 필요함
 
-## 핵심 흐름
+## 30초 요약
 
-1. 방문 후 약 1분 음성 기록
-2. STT → LLM이 분류 초안 생성 → 요양보호사가 검토·확정
-3. 다음 방문 전 확인 사항과 인계 요약 조회 (요약마다 근거 기록 연결)
-4. 방문 중 확인한 결과를 원래 기록에 연결
+| 누가 | 하는 일 |
+|---|---|
+| **요양보호사** | 방문을 시작하고, 끝나면 1분 녹음 → AI 초안(말씀·관찰·다음 확인, 불편 부위, 식사량·기분)을 근거 구절과 함께 확인·수정 → 확정. 다음 방문 전에는 남은 확인 사항, 변화 알림, 인계 요약, 식사량·기분 추이를 본다 |
+| **기관 담당자** | 수급자·담당 배정·동의를 관리하고, 변화 알림과 긴급 우려를 처리하고, 확정 기록에 확인 서명을 하고, 보호자 하루 요약을 승인한다 |
+| **보호자** | 수급자가 동의한 범위(분류)의 확정 내용과, 센터가 승인한 하루 요약·안내만 본다 |
+
+## 데모 열기 (비용 0원)
+
+```bash
+cd deploy && cp .env.example .env   # 비밀값과 GEMINI_API_KEY(무료 등급) 채우기, DEPLOY.md 참고
+./demo.sh up                        # https://….trycloudflare.com 주소 출력, 끝나면 ./demo.sh down
+```
+
+| 데모 계정 (비밀번호 `demo1234`) | 역할 | 처음 볼 것 |
+|---|---|---|
+| `demo` | 요양보호사 | 김순자(가상) → 2주 가상 이력, 변화 알림 2건, 추이, 남은 확인 사항 |
+| `manager` | 기관 담당자 | 센터 관리 → 알림 인박스, 확인 대기 기록 |
+| `family` | 보호자 | 승인된 하루 요약(열람 범위로 걸러짐), 센터 안내 |
+| `demo2` | 요양보호사 | 배정 없음 (담당 교체 시연) |
+
+5분 시연 순서는 [docs/DEMO.md](docs/DEMO.md)에 있습니다. 서버 없이 로컬에서 개발 모드로 띄우려면 아래 [로컬 실행](#로컬-실행)을 보세요.
+
+## 설계에서 신경 쓴 것
+
+- **AI는 초안만, 사람이 확정한다.** 항목마다 근거 구절을 달고 서버가 전사문에서 실제로 찾아 표시한다. 근거가 없는 상태 값·후속 확인 답은 버린다. AI 항목을 모두 확인·수정·삭제해야 확정된다.
+- **위험 판단은 AI가 하지 않는다.** AI는 불편 부위·식사량 같은 값만 뽑고, 변화 알림은 확정된 값으로 서버 규칙(7일 안 같은 부위 두 번, 식사량 2단계 감소)이 만든다. 규칙은 CI의 평가 시나리오로 고정했다.
+- **요약은 근거가 있어야 남는다.** 인계 요약·보호자 요약 문장마다 근거 항목 번호를 달게 하고 서버가 검증한다. 보호자에게는 근거가 모두 그 보호자의 열람 범위 안에 있는 문장만 보낸다.
+- **개인정보**: 건강정보 동의 없으면 녹음·AI 처리·확정·정정을 막는다. 음성·사진은 암호화해 저장하고 보관 기간이 지나면 지운다. 전사문의 연락처·주민번호 형태를 AI에 넘기기 전에 가린다. 열람·정정·내보내기 이력을 남긴다. 수급자 이름은 URL·로그·AI 입력에 넣지 않는다.
+- **권한은 한 곳에서**: 역할 5종 × 엔드포인트 전부를 표로 테스트하고, 표에 없는 API가 생기면 테스트가 실패한다.
+- **평가로 고친다**: 가상 시나리오 평가셋으로 Gemini와 로컬 모델을 반복 측정하고, 평가에서 찾은 문제를 고친 뒤 다시 잰다(holdout으로 평가셋 과적합 확인).
+
+## 구조
+
+```mermaid
+flowchart LR
+  subgraph B[브라우저]
+    C[요양보호사<br/>녹음·검토]
+    M[기관 담당자<br/>관리·인박스]
+    G[보호자<br/>열람]
+  end
+  B -->|HTTPS| Caddy
+  Caddy -->|/api| API[FastAPI]
+  Caddy --> Web[Next.js]
+  API --> DB[(PostgreSQL)]
+  W[워커<br/>전사·분류·보관 기간] --> DB
+  API --> Media[(암호화된<br/>음성·사진)]
+  W --> Media
+  W -->|가상 데이터만| AI[Gemini 무료 등급<br/>또는 로컬 mlx-whisper + Ollama]
+```
+
+## 단계별로 만든 것
+
+PR 하나에 단계 하나씩, 설계 문서(`docs/specs/`)와 결정 이유를 남기며 진행했습니다.
+
+| 단계 | 내용 | PR |
+|---|---|---|
+| 1 | 녹음 → STT → AI 초안 → 검토·확정, 근거 구간 재생, 오프라인 녹음 | [#1](https://github.com/Yooch2/CareServiceNote/pull/1) [#2](https://github.com/Yooch2/CareServiceNote/pull/2) |
+| 2 | 후속 확인, 방문 전 확인, 근거 달린 AI 인계 요약, 키워드 검색 | [#3](https://github.com/Yooch2/CareServiceNote/pull/3) |
+| 3 | 센터·역할·담당 배정·동의 기록·보호자 열람 범위·센터 확인 서명 | [#4](https://github.com/Yooch2/CareServiceNote/pull/4) |
+| 4 | 변화 알림 규칙, 긴급 우려, 센터 인박스, 식사량·기분 추이 | [#5](https://github.com/Yooch2/CareServiceNote/pull/5) |
+| 5 | 보호자 하루 요약(승인 후 공유), 방문 시작·종료, 처리 결과 안내, 업무 메시지 | [#6](https://github.com/Yooch2/CareServiceNote/pull/6) |
+| 6 | 정정·이력·내보내기 / 암호화 저장·보관 기간·마스킹·사진 | [#7](https://github.com/Yooch2/CareServiceNote/pull/7) [#8](https://github.com/Yooch2/CareServiceNote/pull/8) |
+| 7 | 가상 시나리오 평가셋, 반복 측정, 평가로 찾은 문제 개선 | [#9](https://github.com/Yooch2/CareServiceNote/pull/9) |
+| 8 | 운영 배포 구성, 운영 설정 검사, 시도 횟수 제한, 백업, 무료 터널 | [#10](https://github.com/Yooch2/CareServiceNote/pull/10) [#11](https://github.com/Yooch2/CareServiceNote/pull/11) |
 
 ## 기술 스택
 
 | 영역 | 사용 기술 |
 |---|---|
-| Backend | FastAPI, SQLAlchemy 2, Alembic, PostgreSQL |
-| Frontend | Next.js (App Router), TypeScript, Tailwind CSS |
-| AI | Whisper 계열 STT, LLM 구조화 출력 (로컬 / API 전환) |
-| Infra | Docker Compose, GitHub Actions |
+| Backend | FastAPI, SQLAlchemy 2, Alembic, PostgreSQL 17 (`pg_trgm`) |
+| Frontend | Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 4 |
+| AI | Gemini(무료 등급, 음성 입력·구조화 출력) / 로컬 mlx-whisper + Ollama(qwen2.5:7b) |
+| 보안 | PyJWT(httpOnly 쿠키), argon2, Fernet 파일 암호화 |
+| Infra | Docker Compose, Caddy, Cloudflare 무료 터널, GitHub Actions |
 
 ## 로컬 실행
 
@@ -85,7 +152,11 @@ cd frontend && pnpm e2e                  # Playwright E2E (fake AI 백엔드·�
 
 E2E는 이미 8001·3100 포트에 떠 있는 서버를 재사용하므로, 직접 띄워 둔 백엔드가 있다면 `AI_PROVIDER=fake`여야 합니다.
 
-## 화면 흐름
+현재: 백엔드 426개(역할 × 엔드포인트 접근 표, 알림 규칙 평가 시나리오 포함), 프런트 단위 13개, E2E 8개. CI(GitHub Actions)는 백엔드·프런트·Docker 이미지 빌드 세 가지를 돌립니다.
+
+## 기능 자세히
+
+### 기록하기
 
 <p>
   <img src="docs/images/02-recipients.png" width="200" alt="수급자 목록">

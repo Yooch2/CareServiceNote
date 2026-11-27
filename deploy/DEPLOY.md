@@ -46,6 +46,8 @@ cp .env.example .env && chmod 600 .env   # 아래 '처음 올리기' 3번처럼 
    ```
    `SEED_DEMO=true`면 데모 센터와 계정(`manager`, `demo`, `demo2`, `family` / `demo1234`)이 만들어진다.
 
+> `POSTGRES_PASSWORD`는 DB 볼륨을 **처음 만들 때** 정해진다. 나중에 `.env`에서 바꾸면 `migrate`가 "password authentication failed"로 실패한다. 바꾸려면 `docker compose exec db psql -U csn -c "ALTER USER csn PASSWORD '새 비밀번호'"` 후 `.env`를 고친다(로컬 확인용이면 `docker compose down -v`로 볼륨을 지우고 다시 띄워도 된다).
+
 `ENV=production`에서는 API가 시작할 때 설정을 확인한다. `COOKIE_SECURE`가 꺼져 있거나, `JWT_SECRET`이 짧거나 예시값이거나, `STORAGE_KEY`가 없거나, AI 설정이 비어 있으면 **시작하지 않고** 무엇이 틀렸는지 로그에 남긴다(`docker compose logs api`).
 
 ## 업데이트
