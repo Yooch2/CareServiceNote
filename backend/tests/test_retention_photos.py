@@ -7,11 +7,12 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 from PIL import Image
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import storage
 from app.config import settings
-from app.models import RecordPhoto, VisitRecord
+from app.models import Consent, RecordPhoto, VisitRecord
 from app.retention import purge
 from tests.helpers import (
     add_recipient,
@@ -146,3 +147,19 @@ def test_purge_old_transcripts_keeps_items(db: Session) -> None:
     assert kept is not None and kept.transcript is None and kept.draft is None
     assert [i.content for i in kept.items] == ["무릎이 불편하다"]  # 공식 기록은 남김
     assert db.get(VisitRecord, recent.id).transcript == "산책 이야기"  # type: ignore[union-attr]
+
+
+def test_photo_pixel_bomb_rejected_before_decoding(client: TestClient) -> None:
+    _, record_id = _draft(client)
+    huge = io.BytesIO()
+    Image.new("1", (7000, 7000)).save(huge, format="PNG")  # 4900만 화소, 파일은 작음
+    assert len(huge.getvalue()) < settings.max_photo_bytes
+    assert _upload(client, record_id, huge.getvalue(), "image/png").status_code == 415
+
+
+def test_photo_needs_health_consent(client: TestClient, db: Session) -> None:
+    rid, record_id = _draft(client)
+    for consent in db.scalars(select(Consent).where(Consent.recipient_id == uuid.UUID(rid))):
+        consent.withdrawn_at = NOW
+    db.commit()
+    assert _upload(client, record_id, _jpeg_with_gps()).status_code == 409

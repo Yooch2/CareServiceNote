@@ -12,8 +12,10 @@ from app.db import SessionLocal
 from app.models import VisitRecord
 from tests.helpers import make_confirmed, make_record
 
-# 기록의 available_at은 DB 현재 시각으로 들어가므로, 고정 날짜 대신 실행 시각보다 조금 뒤로 둔다
-NOW = datetime.now(UTC).replace(microsecond=0) + timedelta(minutes=1)
+# 기록의 available_at은 DB 현재 시각으로 들어가므로, 고정 날짜 대신 실행 시각보다 뒤로 둔다.
+# 모듈을 읽을 때 정하는 값이라 테스트가 늘어 이 파일이 늦게 돌아도 새 기록보다 뒤가 되게 하루 뒤로.
+# (1분 뒤로 두었더니 CI에서 수집 후 1분이 지나 기록을 가져가지 못한 적이 있다)
+NOW = datetime.now(UTC).replace(microsecond=0) + timedelta(days=1)
 
 
 def _reload(db: Session, record: VisitRecord) -> VisitRecord:

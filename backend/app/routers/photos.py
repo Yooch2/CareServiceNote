@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Response, UploadFile, status
 
 from app import storage
-from app.access import CaregiverUser, StaffUser, record_for_staff
+from app.access import CaregiverUser, StaffUser, record_for_staff, require_health_consent
 from app.config import settings
 from app.deps import DbSession
 from app.models import RecordPhoto
@@ -26,6 +26,9 @@ def add_photo(
     record_id: uuid.UUID, photo: UploadFile, db: DbSession, user: CaregiverUser
 ) -> RecordPhoto:
     record = record_for_staff(db, user, record_id, own=True, for_update=True)
+    # 사진은 새로 모으는 건강정보라 업로드·확정·정정과 같이 동의가 있어야 한다
+    # (이미 붙인 사진 열람은 3단계 규칙대로 철회 뒤에도 유지)
+    require_health_consent(db, record.recipient_id)
     if record.status not in _EDITABLE:
         raise HTTPException(
             status.HTTP_409_CONFLICT, "사진은 확정 전 검토 화면에서만 붙일 수 있습니다"
