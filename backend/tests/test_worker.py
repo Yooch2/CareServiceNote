@@ -12,7 +12,8 @@ from app.db import SessionLocal
 from app.models import VisitRecord
 from tests.helpers import make_record
 
-NOW = datetime(2026, 11, 27, 3, 0, tzinfo=UTC)
+# 기록의 available_at은 DB 현재 시각으로 들어가므로, 고정 날짜 대신 실행 시각보다 조금 뒤로 둔다
+NOW = datetime.now(UTC).replace(microsecond=0) + timedelta(minutes=1)
 
 
 def _reload(db: Session, record: VisitRecord) -> VisitRecord:
