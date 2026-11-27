@@ -181,6 +181,9 @@ def process(
                 approximate_times=transcript.approximate_times,
             ):
                 return
+        with session_factory() as s:  # 전사하는 동안 동의가 철회됐으면 분류(AI)로 넘기지 않는다
+            if not has_consent(s, claim.recipient_id, "health_record"):
+                raise PermanentAIError("consent_withdrawn")
         followups = _followups_for_prompt(session_factory, claim.recipient_id)
         classification = classifier.classify(transcript, [f for f, _ in followups])
         draft = build_draft(transcript, classification, {f.ref: snap for f, snap in followups})

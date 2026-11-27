@@ -40,6 +40,27 @@ app.include_router(photos.router)
 _FORM_OVERHEAD = 64 * 1024
 
 
+_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+@app.middleware("http")
+async def same_origin_only(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    """브라우저가 다른 출처(같은 사이트의 하위 도메인 포함)에서 보낸 변경 요청을 막는다 (CSRF).
+
+    SameSite=Lax 쿠키와 JSON 본문만으로는 같은 사이트의 다른 하위 도메인에서 보내는 본문 없는 POST나
+    multipart 업로드를 막지 못한다. 최신 브라우저는 Sec-Fetch-Site를 보내므로 그것으로 거른다.
+    헤더가 없는 요청(브라우저가 아닌 도구)은 쿠키 세션을 가질 일이 없어 그대로 둔다.
+    """
+    site = request.headers.get("sec-fetch-site")
+    if request.method not in _SAFE_METHODS and site not in (None, "same-origin", "none"):
+        return JSONResponse(
+            {"detail": "다른 사이트에서 보낸 요청은 받지 않습니다"}, status_code=403
+        )
+    return await call_next(request)
+
+
 @app.middleware("http")
 async def limit_upload_size(
     request: Request, call_next: Callable[[Request], Awaitable[Response]]

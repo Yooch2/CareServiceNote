@@ -16,6 +16,7 @@ from app.access import (
     StaffUser,
     has_consent,
     record_for_staff,
+    require_health_consent,
 )
 from app.ai.errors import AIError, TransientAIError
 from app.ai.summary import clean_summary, summarize_for_guardian
@@ -107,6 +108,8 @@ def create_guardian_summary(
     승인 전에는 보호자에게 안 보인다.
     """
     record = record_for_staff(db, user, record_id)  # 기관 담당자는 확정 기록만 통과
+    # AI로 건강정보를 새로 처리하므로 인계 요약과 같이 건강정보 동의도 있어야 한다
+    require_health_consent(db, record.recipient_id)
     if not has_consent(db, record.recipient_id, "guardian_share"):
         raise HTTPException(
             status.HTTP_409_CONFLICT, "보호자 공유 동의가 없어 요약을 만들 수 없습니다"
