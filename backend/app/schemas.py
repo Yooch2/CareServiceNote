@@ -111,6 +111,7 @@ class RecordOut(BaseModel):
 
     id: uuid.UUID
     recipient_id: uuid.UUID
+    caregiver_id: uuid.UUID  # 작성자 (정정 권한 표시용)
     visited_on: date
     recorded_at: datetime
     status: str

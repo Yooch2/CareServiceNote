@@ -124,6 +124,7 @@ export interface RecordItem {
 export interface VisitRecord {
   id: string;
   recipient_id: string;
+  caregiver_id: string;
   visited_on: string;
   recorded_at: string;
   status: RecordStatus;
@@ -140,6 +141,7 @@ export interface VisitRecord {
   meal_level: number | null;
   mood: Mood | null;
   review: { reviewer_name: string; reviewed_at: string } | null;
+  revisions: Revision[];
 }
 
 export interface RecordSummary {
@@ -359,5 +361,26 @@ export interface Message {
   author_name: string;
   author_role: Role;
   body: string;
+  created_at: string;
+}
+
+// --- 6단계: 정정 · 감사 로그 ---
+
+export interface Revision {
+  id: string;
+  item_id: string | null;
+  before: Record<string, unknown>;
+  after: Record<string, unknown>;
+  reason: string;
+  user_name: string;
+  created_at: string;
+}
+
+export interface AuditEntry {
+  id: string;
+  actor_name: string;
+  actor_role: Role;
+  action: "view_record" | "view_handover" | "search" | "view_guardian_home" | "correct" | "export";
+  record_id: string | null;
   created_at: string;
 }

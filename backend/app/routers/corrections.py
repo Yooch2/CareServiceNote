@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import Response
 from sqlalchemy import select
 
-from app.access import ManagedRecipient, StaffUser, record_for_staff
+from app.access import ManagedRecipient, StaffUser, record_for_staff, require_health_consent
 from app.alerts import reevaluate_after_correction
 from app.audit import audit
 from app.deps import DbSession
@@ -35,6 +35,8 @@ _NO_CHANGE = "바뀐 내용이 없습니다"
 def _correctable(db: DbSession, user: User, record_id: uuid.UUID) -> VisitRecord:
     """작성자(지금 배정 중)나 같은 센터 기관 담당자만, 확정 기록만"""
     record = record_for_staff(db, user, record_id, for_update=True)
+    # 정정은 알림 재평가까지 이어지는 새 처리라 확정과 같이 건강정보 동의가 있어야 한다
+    require_health_consent(db, record.recipient_id)
     if record.status != "confirmed":
         raise HTTPException(status.HTTP_409_CONFLICT, _NOT_CONFIRMED)
     if user.role == "caregiver" and record.caregiver_id != user.id:
@@ -156,6 +158,14 @@ _CATEGORY_KO = {"remark": "말씀", "observation": "관찰", "followup": "다음
 _ORIGIN_KO = {"ai": "AI 초안 그대로", "ai_edited": "AI 초안 수정", "human": "직접 작성"}
 _MEAL_KO = ("거의 못 드심", "조금", "절반", "대부분", "다 드심")
 _MOOD_KO = {"good": "좋음", "neutral": "보통", "low": "처짐"}
+_FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _cell(value: str) -> str:
+    """엑셀이 수식으로 실행하지 않게 =, +, -, @ 등으로 시작하는 칸 앞에 '를 붙인다."""
+    return "'" + value if value.startswith(_FORMULA_START) else value
+
+
 _HEADER = (
     "방문일", "분류", "내용", "근거", "출처",
     "정정", "확인 결과", "식사량", "기분", "센터 확인",
@@ -202,7 +212,8 @@ def export_records(recipient: ManagedRecipient, db: DbSession, user: StaffUser) 
         for item in r.items:
             check = checks.get(item.id) or item.check
             writer.writerow(
-                [
+                _cell(v)
+                for v in [
                     r.visited_on.isoformat(),
                     _CATEGORY_KO[item.category],
                     item.content,

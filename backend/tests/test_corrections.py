@@ -189,3 +189,34 @@ def test_export_csv(client: TestClient, other_client: TestClient, db: Session) -
         ("말씀", "무릎이 쑤신다", "예", "절반"),
         ("다음 확인", "무릎 다시 확인", "", "절반"),
     ]
+
+
+def test_export_neutralizes_formulas(
+    client: TestClient, other_client: TestClient, db: Session
+) -> None:
+    rid, carer = _setup(client, other_client, db)
+    _visit(
+        db,
+        rid,
+        carer["id"],
+        0,
+        [("remark", '=HYPERLINK("http://x","클릭")'), ("remark", "-3kg 빠지심")],
+    )
+    rows = list(
+        csv.reader(io.StringIO(client.get(f"/recipients/{rid}/export").content.decode("utf-8-sig")))
+    )
+    assert [r[2] for r in rows[1:]] == ['\'=HYPERLINK("http://x","클릭")', "'-3kg 빠지심"]
+
+
+def test_correction_needs_health_consent(
+    client: TestClient, other_client: TestClient, db: Session
+) -> None:
+    rid, carer = _setup(client, other_client, db)
+    record = _visit(db, rid, carer["id"], 0, [("remark", "산책을 원하심")])
+    consent = next(
+        c
+        for c in client.get(f"/recipients/{rid}/admin").json()["consents"]
+        if c["kind"] == "health_record"
+    )
+    client.post(f"/recipients/{rid}/consents/{consent['id']}/withdraw")
+    assert _fix(other_client, record, content="바꿈").status_code == 409
