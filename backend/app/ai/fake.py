@@ -14,6 +14,7 @@ from app.ai.types import (
     Segment,
     TopicMention,
     Transcript,
+    VisitState,
 )
 
 FAKE_TRANSCRIPT = Transcript(
@@ -40,6 +41,7 @@ FAKE_CLASSIFICATION = Classification(
             evidence="오른쪽 무릎이 좀 불편하다고 하셨어요",
             speaker_uncertain=False,
             risk_tag="pain",
+            body_part="knee",
         ),
         DraftItem(
             category="remark",
@@ -64,6 +66,7 @@ FAKE_CLASSIFICATION = Classification(
         ),
     ],
     mentioned_topics=[TopicMention(topic="meal", evidence="점심은 반 정도 드셨습니다")],
+    state=VisitState(meal_level=2, meal_evidence="점심은 반 정도 드셨습니다"),
 )
 
 

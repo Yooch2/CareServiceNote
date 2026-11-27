@@ -16,7 +16,9 @@ CLASSIFY_SYSTEM = """너는 방문요양 기록 정리를 돕는다. 요양보�
 4. 누가 한 말인지 분명하지 않으면 speaker_uncertain을 true로 한다.
 5. mentioned_topics에는 전사문에서 실제로 언급된 주제만 넣고, evidence에 그 주제가 나온 전사문 구절을 그대로 옮긴다. 주제: meal(식사), toileting(배변), sleep(수면), mood(기분). 언급이 없는 주제는 넣지 않는다.
 6. 사용자 메시지에 '이전 방문에서 확인하기로 한 사항'(F1, F2 ...)이 있으면, 전사문에서 그 사항에 대한 답을 찾는다. 답이 있으면 followup_results에 ref(F번호), result(확인한 결과를 짧게), evidence(답이 된 전사문 구절을 그대로)를 넣는다. 답이 없는 사항은 넣지 않는다. 이전 확인 사항에 대한 답은 items에 따로 넣지 않아도 된다.
-7. 지정된 JSON 형식으로만 답한다."""  # noqa: E501
+7. 항목이 특정 신체 부위의 불편이나 통증을 말하면 body_part에 그 부위를 넣는다: head(머리), neck(목), shoulder(어깨), arm(팔), hand(손), chest(가슴), abdomen(배), back(허리·등), hip(엉덩이·골반), leg(다리), knee(무릎), foot(발). 좌우는 구분하지 않는다. 부위의 불편이 아니면 null.
+8. state에는 오늘 상태를 넣는다. meal_level은 식사량을 0(거의 못 드심), 1(조금), 2(절반), 3(대부분), 4(다 드심) 중 하나로, mood는 기분을 good(좋음), neutral(보통), low(처짐) 중 하나로 한다. 각각 근거가 된 전사문 구절을 meal_evidence, mood_evidence에 그대로 옮긴다. 전사문에 언급이 없으면 null로 둔다. 상태가 나쁜지 판단하거나 조언하지 않는다.
+9. 지정된 JSON 형식으로만 답한다."""  # noqa: E501
 
 TRANSCRIBE_PROMPT = """이 음성은 방문요양 요양보호사가 방문 직후 남긴 한국어 기록이다.
 들리는 그대로 전사한다. 내용을 고치거나 요약하거나 덧붙이지 않는다.

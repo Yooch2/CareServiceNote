@@ -46,6 +46,7 @@ def test_local_pipeline(sample_audio: Path) -> None:
     print(draft)
     assert draft["items"]
     assert "meal" not in draft["missing_topics"]
+    assert draft["state"]["meal_level"] in (2, None)  # 작은 모델은 비울 수 있지만 틀린 값은 안 됨
 
 
 def test_gemini_pipeline(sample_audio: Path) -> None:
@@ -57,6 +58,8 @@ def test_gemini_pipeline(sample_audio: Path) -> None:
     draft = build_draft(transcript, ai.classify(transcript))
     print(draft)
     assert draft["items"]
+    assert "knee" in {i["body_part"] for i in draft["items"]}, "무릎 불편 항목에 부위가 있어야 한다"
+    assert draft["state"]["meal_level"] == 2, "점심 반 정도 = 2(절반)"
 
 
 # 두 번째 방문: 지난번 '다음 확인' 사항에 대한 답이 들어 있는 기록

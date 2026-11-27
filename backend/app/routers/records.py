@@ -19,6 +19,7 @@ from app.access import (
     record_for_staff,
     require_health_consent,
 )
+from app.alerts import evaluate_alerts
 from app.config import settings
 from app.confirm import ConfirmError, build_confirmed_items, build_followup_checks
 from app.deps import DbSession
@@ -152,8 +153,11 @@ def confirm_record(
     record.followup_checks = [FollowupCheck(**c) for c in checks]
     record.status = "confirmed"
     record.confirmed_at = datetime.now(UTC)
+    record.meal_level, record.mood = body.meal_level, body.mood
     record.audio_path = None
     try:
+        db.flush()
+        evaluate_alerts(db, record)
         db.commit()
     except IntegrityError:
         # 다른 기록이 같은 확인 사항을 먼저 확정한 경우 (followup_item_id unique)
