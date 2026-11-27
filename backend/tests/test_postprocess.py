@@ -122,3 +122,26 @@ def test_followup_results_map_refs_and_drop_unknown_or_duplicate() -> None:
 def test_draft_without_followups_has_empty_lists() -> None:
     draft = build_draft(TRANSCRIPT, Classification(items=[], mentioned_topics=[]))
     assert draft["open_followups"] == [] and draft["followup_results"] == []
+
+
+def test_evidence_matching_ignores_full_width_punctuation() -> None:
+    # 로컬 qwen2.5:7b가 근거를 옮기며 문장부호를 전각(，。)으로 바꿔 쓴 실제 사례
+    transcript = Transcript(
+        text="무릎은 어제보다 조금 나아졌다고 하셨고, 저녁은 다 드셨습니다.",
+        segments=[
+            Segment(0, 3000, "무릎은 어제보다 조금 나아졌다고 하셨고, 저녁은 다 드셨습니다.")
+        ],
+        approximate_times=False,
+    )
+    draft = build_draft(
+        transcript,
+        Classification(
+            items=[
+                _item("무릎은 어제보다 조금 나아졌다고 하셨고，"),
+                _item("저녁은 다 드셨습니다。"),
+            ],
+            mentioned_topics=[],
+        ),
+    )
+    assert [i["evidence_found"] for i in draft["items"]] == [True, True]
+    assert [i["segment_index"] for i in draft["items"]] == [0, 0]

@@ -1,5 +1,6 @@
 import shutil
 import subprocess
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,8 @@ import pytest
 from app.ai.gemini import GeminiAI
 from app.ai.local import LocalTranscriber, OllamaClassifier
 from app.ai.postprocess import build_draft
+from app.ai.summary import clean_summary, summarize
+from app.ai.types import OpenFollowup
 from app.config import settings
 
 pytestmark = pytest.mark.live
@@ -54,3 +57,67 @@ def test_gemini_pipeline(sample_audio: Path) -> None:
     draft = build_draft(transcript, ai.classify(transcript))
     print(draft)
     assert draft["items"]
+
+
+# 두 번째 방문: 지난번 '다음 확인' 사항에 대한 답이 들어 있는 기록
+SECOND_VISIT = (
+    "지난번에 여쭤보기로 한 산책은 오늘은 집에서 쉬고 싶다고 하셨어요. "
+    "무릎은 어제보다 조금 나아졌다고 하셨고, 저녁은 다 드셨습니다."
+)
+FOLLOWUPS = [
+    OpenFollowup("F1", "산책 의향 다시 여쭤보기", date(2026, 11, 20)),
+    OpenFollowup("F2", "무릎 상태 다시 확인", date(2026, 11, 20)),
+    OpenFollowup("F3", "복약 시간 지키시는지 확인", date(2026, 11, 20)),
+]
+REFS = {
+    f.ref: {"item_id": f.ref.lower(), "content": f.content, "visited_on": "2026-11-20"}
+    for f in FOLLOWUPS
+}
+
+
+def _check_followups(draft: dict[str, object]) -> None:
+    results = {r["item_id"]: r for r in draft["followup_results"]}  # type: ignore[index, union-attr]
+    print(results)
+    assert {"f1", "f2"} <= set(results), "산책·무릎 사항의 답을 찾아야 한다"
+    assert "f3" not in results, "녹음에 없는 복약 사항은 비워 둬야 한다"
+    assert all(r["evidence_found"] for r in results.values())
+
+
+@pytest.fixture(scope="session")
+def second_audio(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    if not (shutil.which("say") and shutil.which("afconvert")):
+        pytest.skip("macOS say/afconvert가 필요합니다")
+    folder = tmp_path_factory.mktemp("audio2")
+    aiff, wav = folder / "second.aiff", folder / "second.wav"
+    subprocess.run(["say", "-v", "Yuna", "-o", str(aiff), SECOND_VISIT], check=True)
+    subprocess.run(
+        ["afconvert", "-f", "WAVE", "-d", "LEI16@16000", str(aiff), str(wav)], check=True
+    )
+    return wav
+
+
+def test_gemini_followups_and_summary(second_audio: Path) -> None:
+    if not settings.gemini_api_key:
+        pytest.skip("GEMINI_API_KEY가 없습니다")
+    ai = GeminiAI(settings.gemini_api_key, settings.gemini_model)
+    transcript = ai.transcribe(second_audio)
+    _check_followups(build_draft(transcript, ai.classify(transcript, FOLLOWUPS), REFS))
+
+    lines = [
+        "I1. [2026-11-20] [말씀] 오른쪽 무릎이 불편하다",
+        "I2. [2026-11-20] [다음 확인] 무릎 상태 다시 확인",
+        "I3. [2026-11-27] [확인 결과] 무릎 상태 다시 확인 → 조금 나아졌다고 하심",
+        "I4. [2026-11-27] [말씀] 오늘은 집에서 쉬고 싶다",
+    ]
+    out = summarize(ai, lines)
+    print(out)
+    cleaned = clean_summary(out, {f"I{i}": i for i in range(1, 5)})
+    assert cleaned and len(cleaned) == len(out.sentences), "모든 문장에 실제 근거가 있어야 한다"
+
+
+def test_local_followups(second_audio: Path) -> None:
+    transcript = LocalTranscriber(settings.mlx_whisper_model).transcribe(second_audio)
+    classifier = OllamaClassifier(
+        settings.ollama_url, settings.ollama_model, settings.ollama_num_ctx
+    )
+    _check_followups(build_draft(transcript, classifier.classify(transcript, FOLLOWUPS), REFS))

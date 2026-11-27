@@ -1,11 +1,17 @@
 import re
+import unicodedata
 from collections.abc import Mapping
 from typing import Any
 
 from app.ai.types import TOPICS, Classification, Transcript
 
+# NFKC가 바꾸지 않는 CJK 문장부호 (로컬 모델이 근거를 옮기며 바꿔 쓰는 경우가 있음)
+_CJK_PUNCT = str.maketrans({"。": ".", "、": ",", "「": '"', "」": '"'})
+
 
 def _norm(text: str) -> str:
+    """근거 대조용 정규화: 전각 문장부호(，。！？)를 반각으로, 공백을 하나로."""
+    text = unicodedata.normalize("NFKC", text).translate(_CJK_PUNCT)
     return re.sub(r"\s+", " ", text).strip()
 
 
