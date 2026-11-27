@@ -107,3 +107,12 @@ export function alertTitle(kind: AlertKind, key: string): string {
 export function timeOnly(iso: string): string {
   return new Date(iso).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false });
 }
+
+export const AUDIT_LABEL: Record<string, string> = {
+  view_record: "기록 열람",
+  view_handover: "방문 전 확인 열람",
+  search: "검색",
+  view_guardian_home: "보호자 화면 열람",
+  correct: "정정",
+  export: "내보내기",
+};

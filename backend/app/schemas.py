@@ -111,6 +111,7 @@ class RecordOut(BaseModel):
 
     id: uuid.UUID
     recipient_id: uuid.UUID
+    caregiver_id: uuid.UUID  # 작성자 (정정 권한 표시용)
     visited_on: date
     recorded_at: datetime
     status: str
@@ -127,6 +128,7 @@ class RecordOut(BaseModel):
     meal_level: int | None
     mood: Mood | None
     review: "ReviewOut | None"
+    revisions: list["RevisionOut"]
 
 
 class ReviewOut(BaseModel):
@@ -496,4 +498,44 @@ class MessageOut(BaseModel):
     author_name: str
     author_role: Role
     body: str
+    created_at: datetime
+
+
+# --- 6단계: 정정 · 감사 로그 ---
+
+Reason = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+
+
+class ItemCorrectionIn(BaseModel):
+    category: Category
+    content: LongText
+    body_part: BodyPart | None = None
+    risk_tag: RiskTag | None = None
+    reason: Reason
+
+
+class StateCorrectionIn(BaseModel):
+    meal_level: MealLevel | None = None
+    mood: Mood | None = None
+    reason: Reason
+
+
+class RevisionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    item_id: uuid.UUID | None
+    before: dict[str, Any]
+    after: dict[str, Any]
+    reason: str
+    user_name: str
+    created_at: datetime
+
+
+class AuditOut(BaseModel):
+    id: uuid.UUID
+    actor_name: str
+    actor_role: Role
+    action: str
+    record_id: uuid.UUID | None
     created_at: datetime

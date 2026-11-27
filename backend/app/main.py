@@ -9,7 +9,18 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import get_db
-from app.routers import alerts, auth, guardian, handover, org, recipients, records, search, sharing
+from app.routers import (
+    alerts,
+    auth,
+    corrections,
+    guardian,
+    handover,
+    org,
+    recipients,
+    records,
+    search,
+    sharing,
+)
 
 app = FastAPI(title="CareServiceNote API", version="0.1.0")
 app.include_router(auth.router)
@@ -21,6 +32,7 @@ app.include_router(org.router)
 app.include_router(guardian.router)
 app.include_router(alerts.router)
 app.include_router(sharing.router)
+app.include_router(corrections.router)
 
 # multipart 경계·폼 필드에 쓰이는 여유분
 _FORM_OVERHEAD = 64 * 1024

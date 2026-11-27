@@ -8,7 +8,7 @@
 """
 
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
@@ -129,3 +129,35 @@ def evaluate_alerts(db: Session, record: VisitRecord) -> None:
 
     for (kind, key), evidence in found.items():
         _raise(db, record.recipient_id, kind, key, evidence)
+
+
+def reevaluate_after_correction(db: Session, record: VisitRecord) -> None:
+    """정정 뒤 재평가. 이 기록의 근거를 빼고 규칙을 다시 돌린 뒤,
+
+    근거 기록이 둘 미만으로 남은 알림은 corrected(정정으로 조건이 사라짐)로 닫는다.
+    호출한 쪽이 커밋한다.
+    """
+    rule_kinds = ("repeated_discomfort", "meal_drop")
+    record_key = str(record.id)
+    affected = list(
+        db.scalars(
+            select(Alert)
+            .where(
+                Alert.recipient_id == record.recipient_id,
+                Alert.status == "open",
+                Alert.kind.in_(rule_kinds),
+            )
+            .with_for_update()
+        )
+    )
+    affected = [a for a in affected if any(e["record_id"] == record_key for e in a.evidence)]
+    for alert in affected:
+        alert.evidence = [e for e in alert.evidence if e["record_id"] != record_key]
+    db.flush()
+    evaluate_alerts(db, record)  # 조건이 여전히 맞으면 근거가 다시 합쳐진다
+    db.flush()
+    for alert in affected:  # evaluate_alerts가 같은 객체에 근거를 다시 합쳤을 수 있다
+        if len({e["record_id"] for e in alert.evidence}) < 2:
+            alert.status, alert.resolution = "resolved", "corrected"
+            alert.resolution_note = "기록 정정으로 알림 조건이 사라졌습니다"
+            alert.resolved_at = datetime.now(UTC)

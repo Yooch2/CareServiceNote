@@ -20,6 +20,7 @@ from app.access import (
     require_health_consent,
 )
 from app.alerts import evaluate_alerts
+from app.audit import audit
 from app.config import settings
 from app.confirm import ConfirmError, build_confirmed_items, build_followup_checks
 from app.deps import DbSession
@@ -119,7 +120,9 @@ def put_record(
 
 @router.get("/{record_id}", response_model=RecordOut)
 def get_record(record_id: uuid.UUID, user: StaffUser, db: DbSession) -> VisitRecord:
-    return record_for_staff(db, user, record_id)
+    record = record_for_staff(db, user, record_id)
+    audit(db, user, "view_record", record.recipient_id, record.id)
+    return record
 
 
 @router.get("/{record_id}/audio")

@@ -13,6 +13,7 @@ from app.ai.factory import build_llm
 from app.ai.summary import clean_summary, summarize
 from app.ai.types import StructuredLLM
 from app.ai_usage import reserve_ai_call
+from app.audit import audit
 from app.deps import DbSession
 from app.followups import open_followups
 from app.models import FollowupCheck, HandoverSummary, RecordItem, VisitRecord
@@ -68,12 +69,15 @@ def _confirmed_in_period(recipient_id: uuid.UUID, days: int) -> Any:
 
 
 @router.get("/{recipient_id}/handover", response_model=HandoverOut)
-def get_handover(recipient: StaffRecipient, db: DbSession, days: DaysQuery) -> HandoverOut:
+def get_handover(
+    recipient: StaffRecipient, db: DbSession, user: StaffUser, days: DaysQuery
+) -> HandoverOut:
     """방문 전 확인 묶음.
 
     남은 확인 사항은 기간과 관계없이 전부, 위험 항목·확인 결과·완료율은 기간 안, 저장된 AI 요약.
     """
     recipient_id = recipient.id
+    audit(db, user, "view_handover", recipient_id)
     period = _confirmed_in_period(recipient_id, days)
 
     last_visit_on = db.scalar(

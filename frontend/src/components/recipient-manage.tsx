@@ -4,8 +4,8 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useState, type SubmitEvent } from "react";
 
 import { api, ApiError, postJson } from "@/lib/api";
-import { CATEGORY_LABEL, CATEGORY_ORDER, CONSENT_LABEL, dateOnly } from "@/lib/labels";
-import type { Category, ConsentKind, GuardianLink, InviteCreated, Member, Recipient, RecipientAdmin } from "@/lib/types";
+import { AUDIT_LABEL, CATEGORY_LABEL, CATEGORY_ORDER, CONSENT_LABEL, dateOnly, ROLE_LABEL } from "@/lib/labels";
+import type { AuditEntry, Category, ConsentKind, GuardianLink, InviteCreated, Member, Recipient, RecipientAdmin } from "@/lib/types";
 import { NewInviteCode } from "./center-view";
 import { BackLink } from "./recipient-view";
 import { Badge, Button, Loading, Notice, PageTitle, Sheet } from "./ui";
@@ -187,6 +187,7 @@ export function RecipientManage() {
       </section>
 
       <GuardianSection recipientId={id} guardians={admin.guardians} run={run} />
+      <RecordsSection recipientId={id} />
     </>
   );
 }
@@ -282,6 +283,47 @@ function GuardianSection({
         </Button>
         {created && <NewInviteCode invite={created} who="보호자" />}
       </Sheet>
+    </section>
+  );
+}
+
+/** 기록 내보내기(CSV)와 열람·정정·내보내기 이력 */
+function RecordsSection({ recipientId }: { recipientId: string }) {
+  const [log, setLog] = useState<AuditEntry[] | null>(null);
+  const load = useCallback(() => {
+    api<AuditEntry[]>(`/recipients/${recipientId}/audit`)
+      .then(setLog)
+      .catch(() => setLog([]));
+  }, [recipientId]);
+  useEffect(load, [load]);
+
+  return (
+    <section aria-label="기록 내보내기와 이력" className="mt-8">
+      <h2 className="mb-2 text-lg font-bold">기록 내보내기와 이력</h2>
+      <a
+        href={`/api/recipients/${recipientId}/export`}
+        download
+        onClick={() => setTimeout(load, 800)}
+        className="inline-flex min-h-12 items-center rounded-xl border border-line bg-sheet px-5 font-semibold hover:border-pine"
+      >
+        확정 기록 내보내기 (CSV)
+      </a>
+      <p className="mt-2 text-sm text-muted">내보내기도 아래 이력에 남습니다. 파일에는 수급자 이름이 들어가지 않습니다.</p>
+      <h3 className="mt-4 mb-2 font-semibold">열람·정정·내보내기 이력</h3>
+      {log && log.length === 0 && <p className="text-muted">아직 이력이 없습니다.</p>}
+      {log && log.length > 0 && (
+        <ul className="flex flex-col divide-y divide-line overflow-hidden rounded-lg border border-line bg-sheet text-sm">
+          {log.map((e) => (
+            <li key={e.id} className="flex flex-wrap justify-between gap-x-3 px-4 py-2">
+              <span>
+                <span className="font-semibold">{AUDIT_LABEL[e.action] ?? e.action}</span> · {e.actor_name}{" "}
+                <span className="text-muted">({ROLE_LABEL[e.actor_role]})</span>
+              </span>
+              <span className="text-muted">{new Date(e.created_at).toLocaleString("ko-KR")}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

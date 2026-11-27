@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
 from app.access import GuardianUser, has_consent
+from app.audit import audit
 from app.deps import DbSession
 from app.models import (
     Alert,
@@ -35,6 +36,7 @@ def guardian_home(db: DbSession, user: GuardianUser) -> GuardianHomeOut:
         )
     recipient = db.get(Recipient, link.recipient_id)
     assert recipient is not None
+    audit(db, user, "view_guardian_home", recipient.id)
     categories = link.categories
 
     records = db.scalars(

@@ -4,7 +4,8 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import or_, select
 
-from app.access import StaffRecipient
+from app.access import StaffRecipient, StaffUser
+from app.audit import audit
 from app.deps import DbSession
 from app.models import FollowupCheck, RecordItem, VisitRecord
 from app.schemas import Category, SearchHitOut
@@ -34,6 +35,7 @@ def snippet(text: str, q: str, width: int = SNIPPET_WIDTH) -> str:
 def search(
     recipient: StaffRecipient,
     db: DbSession,
+    user: StaffUser,
     q: Annotated[str, Query(max_length=100)],
     category: Category | None = None,
     days: Annotated[int | None, Query(ge=1, le=365)] = None,
@@ -45,6 +47,7 @@ def search(
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT, "검색어는 2~50자로 입력해 주세요"
         )
+    audit(db, user, "search", recipient_id)  # 검색어는 남기지 않는다
     pattern = like_pattern(q)
     scope = [VisitRecord.recipient_id == recipient_id, VisitRecord.status == "confirmed"]
     if days is not None:
