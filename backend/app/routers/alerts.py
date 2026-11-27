@@ -15,7 +15,7 @@ from app.access import (
     require_health_consent,
 )
 from app.deps import DbSession
-from app.models import Alert, Recipient, User, VisitRecord
+from app.models import Alert, GuardianLink, Recipient, User, VisitRecord
 from app.schemas import AlertOut, ConcernIn, OrgAlertOut, ResolveIn, TrendPointOut
 
 router = APIRouter(tags=["alerts"])
@@ -111,6 +111,21 @@ def org_alerts(
         stmt = stmt.order_by(Alert.created_at)
     else:
         stmt = stmt.order_by(Alert.resolved_at.desc()).limit(RESOLVED_LIMIT)
+    rows = db.execute(stmt).all()
+    guardians: dict[uuid.UUID, list[dict[str, object]]] = {}
+    for link in db.scalars(
+        select(GuardianLink).where(
+            GuardianLink.recipient_id.in_({a.recipient_id for a, *_ in rows}),
+            GuardianLink.active,
+        )
+    ):
+        guardians.setdefault(link.recipient_id, []).append(
+            {
+                "guardian_id": link.guardian_id,
+                "name": link.guardian.display_name,
+                "categories": link.categories,
+            }
+        )
     return [
         OrgAlertOut.model_validate(
             {
@@ -118,9 +133,10 @@ def org_alerts(
                 "recipient_name": name,
                 "created_by_name": created_by,
                 "resolved_by_name": resolved_by,
+                "guardians": guardians.get(a.recipient_id, []),
             }
         )
-        for a, name, created_by, resolved_by in db.execute(stmt).all()
+        for a, name, created_by, resolved_by in rows
     ]
 
 
@@ -139,6 +155,23 @@ def resolve_alert(alert_id: uuid.UUID, body: ResolveIn, db: DbSession, user: Man
     alert.status, alert.resolution = "resolved", body.resolution
     alert.resolution_note = (body.note or "").strip() or None
     alert.resolved_by, alert.resolved_at = user.id, datetime.now(UTC)
+    message = (body.guardian_message or "").strip()
+    if message:
+        targets = set(body.guardian_ids)
+        allowed = set(
+            db.scalars(
+                select(GuardianLink.guardian_id).where(
+                    GuardianLink.recipient_id == alert.recipient_id, GuardianLink.active
+                )
+            )
+        )
+        if not targets or not targets <= allowed:
+            db.rollback()
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT, "안내를 받을 보호자를 골라 주세요"
+            )
+        alert.guardian_message, alert.shared_at = message, alert.resolved_at
+        alert.shared_with = sorted(targets)
     db.commit()
     db.refresh(alert)
     return alert

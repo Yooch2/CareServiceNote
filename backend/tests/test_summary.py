@@ -22,3 +22,14 @@ def test_clean_summary_keeps_at_most_five_sentences() -> None:
 def test_summarize_sends_numbered_lines() -> None:
     out = summarize(FakeClassifier(), ["I1. [2026-11-20] [말씀] 무릎이 불편하다"])
     assert out.sentences == [SummarySentence(text="무릎이 불편하다", refs=["I1"])]
+
+
+def test_reference_markers_removed_from_text() -> None:
+    out = SummaryOut(
+        sentences=[
+            SummarySentence(text="무릎이 불편하다고 하셨습니다. (I1)", refs=["I1"]),
+            SummarySentence(text="산책을 원하셨어요 [I2, I3]", refs=["I2"]),
+        ]
+    )
+    cleaned = clean_summary(out, {"I1": 1, "I2": 2})
+    assert [t for t, _ in cleaned] == ["무릎이 불편하다고 하셨습니다.", "산책을 원하셨어요"]

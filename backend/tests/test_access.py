@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.main import app
-from app.models import Alert, GuardianLink, Invite, Recipient
+from app.models import Alert, GuardianLink, GuardianSummary, Invite, Recipient
 from app.security import hash_password
 from tests.helpers import (
     PASSWORD,
@@ -80,6 +80,19 @@ def _build(db: Session) -> World:
     invite: Invite = make_invite(db, org.id, manager.id, "ACCESS-TEST1")
     alert = Alert(recipient_id=recipient.id, kind="urgent", key="k", evidence=[], note="우려")
     db.add(alert)
+    db.add(
+        GuardianSummary(
+            record_id=confirmed.id,
+            sentences=[
+                {
+                    "text": "무릎이 불편하다고 하셨어요",
+                    "item_ids": [str(confirmed.items[0].id)],
+                    "edited": False,
+                }
+            ],
+            created_by=manager.id,
+        )
+    )
     db.commit()
     return World(
         rid=recipient.id,
@@ -198,6 +211,37 @@ TABLE: list[tuple[str, str, Call, dict[str, int]]] = [
     ("POST", "/org/alerts/{alert_id}/resolve",
      lambda c, w: c.post(f"/org/alerts/{w.alert}/resolve", json={"resolution": "acted"}),
      {"manager": OK, "assigned": 403, "unassigned": 403, "other_manager": 404, "guardian": 403}),
+    ("GET", "/records/{record_id}/guardian-summary",
+     lambda c, w: c.get(f"/records/{w.confirmed}/guardian-summary"),
+     {"manager": OK, "assigned": OK, "unassigned": 404, "other_manager": 404, "guardian": 403}),
+    ("POST", "/records/{record_id}/guardian-summary",
+     lambda c, w: c.post(f"/records/{w.confirmed}/guardian-summary"),
+     {"manager": OK, "assigned": 403, "unassigned": 403, "other_manager": 404, "guardian": 403}),
+    ("PUT", "/records/{record_id}/guardian-summary",
+     lambda c, w: c.put(
+         f"/records/{w.confirmed}/guardian-summary", json={"sentences": [{"text": "고친 문장"}]}
+     ),
+     {"manager": OK, "assigned": 403, "unassigned": 403, "other_manager": 404, "guardian": 403}),
+    ("POST", "/records/{record_id}/guardian-summary/approve",
+     lambda c, w: c.post(f"/records/{w.confirmed}/guardian-summary/approve"),
+     {"manager": OK, "assigned": 403, "unassigned": 403, "other_manager": 404, "guardian": 403}),
+    ("POST", "/records/{record_id}/guardian-summary/unapprove",
+     lambda c, w: c.post(f"/records/{w.confirmed}/guardian-summary/unapprove"),
+     {"manager": OK, "assigned": 403, "unassigned": 403, "other_manager": 404, "guardian": 403}),
+    ("GET", "/recipients/{recipient_id}/visits", lambda c, w: c.get(f"/recipients/{w.rid}/visits"),
+     {"manager": OK, "assigned": OK, "unassigned": 404, "other_manager": 404, "guardian": 403}),
+    ("POST", "/recipients/{recipient_id}/visits/start",
+     lambda c, w: c.post(f"/recipients/{w.rid}/visits/start"),
+     {"manager": 403, "assigned": OK, "unassigned": 404, "other_manager": 404, "guardian": 403}),
+    ("POST", "/recipients/{recipient_id}/visits/end",
+     lambda c, w: c.post(f"/recipients/{w.rid}/visits/end"),
+     {"manager": 403, "assigned": OK, "unassigned": 404, "other_manager": 404, "guardian": 403}),
+    ("GET", "/recipients/{recipient_id}/messages",
+     lambda c, w: c.get(f"/recipients/{w.rid}/messages"),
+     {"manager": OK, "assigned": OK, "unassigned": 404, "other_manager": 404, "guardian": 403}),
+    ("POST", "/recipients/{recipient_id}/messages",
+     lambda c, w: c.post(f"/recipients/{w.rid}/messages", json={"body": "내일 10시로 변경"}),
+     {"manager": OK, "assigned": OK, "unassigned": 404, "other_manager": 404, "guardian": 403}),
     ("GET", "/guardian/home", lambda c, w: c.get("/guardian/home"),
      {"manager": 403, "assigned": 403, "unassigned": 403, "other_manager": 403, "guardian": OK}),
 ]  # fmt: skip

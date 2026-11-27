@@ -12,10 +12,10 @@ from app.ai.errors import AIError, TransientAIError
 from app.ai.factory import build_llm
 from app.ai.summary import clean_summary, summarize
 from app.ai.types import StructuredLLM
-from app.config import settings
+from app.ai_usage import reserve_ai_call
 from app.deps import DbSession
 from app.followups import open_followups
-from app.models import AiUsage, FollowupCheck, HandoverSummary, RecordItem, User, VisitRecord
+from app.models import FollowupCheck, HandoverSummary, RecordItem, VisitRecord
 from app.schemas import (
     CompletionOut,
     Days,
@@ -40,7 +40,6 @@ def period_days(days: Annotated[int, Query()] = 14) -> int:
 
 DaysQuery = Annotated[int, Depends(period_days)]
 MAX_SUMMARY_LINES = 60
-_SUMMARY_LOCK_KEY = 7_301_002  # 요약 한도 확인용 advisory lock 번호
 _CATEGORY_KO = {"remark": "말씀", "observation": "관찰", "followup": "다음 확인"}
 
 
@@ -170,28 +169,6 @@ def _summary_out(db: Session, summary: HandoverSummary) -> SummaryOutApi:
     )
 
 
-def _reserve_summary_call(db: Session, user: User) -> None:
-    """한도를 확인하고 AI를 부르기 전에 사용 기록을 남긴다 (실패한 시도도 센다).
-
-    확인과 기록을 잠금으로 묶어 동시 요청으로 한도를 넘지 못하게 한다. 커밋하면 잠금이 풀린다.
-    """
-    db.execute(select(func.pg_advisory_xact_lock(_SUMMARY_LOCK_KEY)))
-    base = (
-        select(func.count())
-        .select_from(AiUsage)
-        .where(AiUsage.kind == "summary", AiUsage.created_at > func.now() - timedelta(days=1))
-    )
-    mine = db.scalar(base.where(AiUsage.user_id == user.id)) or 0
-    total = db.scalar(base) or 0
-    if mine >= settings.daily_summaries_per_user or total >= settings.daily_summaries_total:
-        db.rollback()
-        raise HTTPException(
-            status.HTTP_429_TOO_MANY_REQUESTS, "오늘 만들 수 있는 요약 수를 넘었습니다"
-        )
-    db.add(AiUsage(user_id=user.id, kind="summary"))
-    db.commit()
-
-
 @dataclass(frozen=True)
 class _Ref:
     item_id: uuid.UUID
@@ -250,7 +227,7 @@ def create_summary(
     lines, refs, covered_until = _summary_lines(db, recipient_id, days)
     if not lines:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "요약할 확정 기록이 없습니다")
-    _reserve_summary_call(db, user)
+    reserve_ai_call(db, user, "summary")
     try:
         cleaned = clean_summary(summarize(llm, lines), refs)
     except TransientAIError:

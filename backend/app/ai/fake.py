@@ -5,7 +5,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from app.ai.errors import AIError
-from app.ai.summary import SummaryOut, SummarySentence
+from app.ai.summary import SUMMARY_SYSTEM, SummaryOut, SummarySentence
 from app.ai.types import (
     Classification,
     DraftItem,
@@ -115,9 +115,11 @@ class FakeClassifier:
         if self.failures:
             raise self.failures.pop(0)
         if schema is SummaryOut:
-            # 입력 앞의 두 항목을 그대로 한 문장씩 옮긴다
-            lines = re.findall(r"^(I\d+)\. \[[^\]]*\] \[[^\]]*\] (.+)$", user, re.M)
-            sentences = [SummarySentence(text=text, refs=[ref]) for ref, text in lines[:2]]
+            # 인계 요약은 앞의 두 항목, 보호자 요약은 항목마다 한 문장씩 그대로 옮긴다
+            lines = re.findall(r"^(I\d+)\. (?:\[[^\]]*\] )+(.+)$", user, re.M)
+            if system == SUMMARY_SYSTEM:
+                lines = lines[:2]
+            sentences = [SummarySentence(text=text, refs=[ref]) for ref, text in lines]
             return schema.model_validate(SummaryOut(sentences=sentences).model_dump())
         if schema is Classification:
             return schema.model_validate(FAKE_CLASSIFICATION.model_dump())

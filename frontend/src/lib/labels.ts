@@ -102,3 +102,8 @@ export function alertTitle(kind: AlertKind, key: string): string {
   if (kind === "meal_drop") return "식사량 감소";
   return "긴급 우려";
 }
+
+/** 2026-11-27T05:02:00Z → 14:02 (기기 시간대) */
+export function timeOnly(iso: string): string {
+  return new Date(iso).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false });
+}
