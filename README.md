@@ -33,13 +33,13 @@
 # DB
 docker compose up -d --wait
 
-# Backend (http://localhost:8000/docs)
+# Backend (http://localhost:8001/docs)
 cd backend
 cp .env.example .env          # JWT_SECRET을 임의 문자열로 바꾸기
 uv sync
 uv run alembic upgrade head
 uv run python -m app.seed     # 데모 계정(demo / demo1234)과 가상 수급자
-uv run uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload --port 8001
 
 # AI 처리 워커 (다른 터미널)
 cd backend
@@ -48,7 +48,7 @@ uv run python -m app.worker
 # Frontend (http://localhost:3100)
 cd frontend
 pnpm install
-pnpm dev
+pnpm dev                      # /api/* 요청은 BACKEND_URL(기본 http://127.0.0.1:8001)로 전달
 ```
 
 ### AI 처리 방식 (`AI_PROVIDER`)
