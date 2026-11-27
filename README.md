@@ -72,6 +72,15 @@ E2E는 이미 8001·3100 포트에 떠 있는 서버를 재사용하므로, 직�
 
 ## 화면 흐름
 
+<p>
+  <img src="docs/images/02-recipients.png" width="200" alt="수급자 목록">
+  <img src="docs/images/03-record.png" width="200" alt="녹음 전 고지 확인과 녹음">
+  <img src="docs/images/04-review.png" width="200" alt="AI 초안 검토: 근거 구간 강조">
+  <img src="docs/images/05-confirmed.png" width="200" alt="확정된 기록과 항목 출처">
+</p>
+
+화면 예시는 모두 가상 데이터이며, 검토 화면은 Gemini 무료 등급으로 실제 처리한 결과입니다.
+
 1. 가입·로그인 → 수급자 선택
 2. 녹음 전 고지 확인 → 녹음(또는 음성 파일) → 기록 올리기
 3. 처리 중 화면(전사 → 분류) → 검토
