@@ -32,6 +32,14 @@ BODY_PARTS = (
 )  # fmt: skip
 MOODS = ("good", "neutral", "low")
 ALERT_KINDS = ("repeated_discomfort", "meal_drop", "urgent")
+AUDIT_ACTIONS = (
+    "view_record",
+    "view_handover",
+    "search",
+    "view_guardian_home",
+    "correct",
+    "export",
+)
 
 
 def _one_of(column: str, values: tuple[str, ...]) -> str:
@@ -252,6 +260,10 @@ class VisitRecord(Base):
     reviewer: Mapped[User | None] = relationship(
         foreign_keys=[reviewed_by], lazy="selectin", viewonly=True
     )
+    # 정정 이력 (오래된 순)
+    revisions: Mapped[list["RecordRevision"]] = relationship(
+        order_by="RecordRevision.created_at", lazy="selectin", viewonly=True
+    )
 
     items: Mapped[list["RecordItem"]] = relationship(
         order_by="RecordItem.position", cascade="all, delete-orphan", lazy="selectin"
@@ -402,7 +414,7 @@ class Alert(Base):
         CheckConstraint(_one_of("kind", ALERT_KINDS), name="ck_alerts_kind"),
         CheckConstraint("status IN ('open', 'resolved')", name="ck_alerts_status"),
         CheckConstraint(
-            "resolution IS NULL OR resolution IN ('acted', 'false_alarm')",
+            "resolution IS NULL OR resolution IN ('acted', 'false_alarm', 'corrected')",
             name="ck_alerts_resolution",
         ),
         Index(
@@ -502,3 +514,49 @@ class Message(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     author: Mapped[User] = relationship(lazy="joined", viewonly=True)
+
+
+class RecordRevision(Base):
+    """확정 기록 정정 이력. item_id가 없으면 오늘 상태(식사량·기분) 정정."""
+
+    __tablename__ = "record_revisions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    record_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("visit_records.id", ondelete="CASCADE"), index=True
+    )
+    item_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("record_items.id", ondelete="CASCADE")
+    )
+    before: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    after: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    reason: Mapped[str] = mapped_column(Text)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user: Mapped[User] = relationship(lazy="joined", viewonly=True)
+
+    @property
+    def user_name(self) -> str:
+        return self.user.display_name
+
+
+class AuditEvent(Base):
+    """열람·정정·내보내기 이력. 검색어나 기록 내용은 남기지 않는다."""
+
+    __tablename__ = "audit_events"
+    __table_args__ = (
+        CheckConstraint(_one_of("action", AUDIT_ACTIONS), name="ck_audit_events_action"),
+        Index("ix_audit_events_recipient_created", "recipient_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    actor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    recipient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("recipients.id"))
+    record_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("visit_records.id", ondelete="SET NULL")
+    )
+    action: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    actor: Mapped[User] = relationship(lazy="joined", viewonly=True)

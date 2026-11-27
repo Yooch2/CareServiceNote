@@ -43,6 +43,7 @@ class World:
     link: uuid.UUID
     unassigned_id: uuid.UUID
     alert: uuid.UUID
+    item: uuid.UUID
 
 
 def _build(db: Session) -> World:
@@ -104,6 +105,7 @@ def _build(db: Session) -> World:
         link=link.id,
         unassigned_id=unassigned.id,
         alert=alert.id,
+        item=confirmed.items[0].id,
     )
 
 
@@ -242,6 +244,21 @@ TABLE: list[tuple[str, str, Call, dict[str, int]]] = [
     ("POST", "/recipients/{recipient_id}/messages",
      lambda c, w: c.post(f"/recipients/{w.rid}/messages", json={"body": "내일 10시로 변경"}),
      {"manager": OK, "assigned": OK, "unassigned": 404, "other_manager": 404, "guardian": 403}),
+    ("PATCH", "/records/{record_id}/items/{item_id}",
+     lambda c, w: c.patch(
+         f"/records/{w.confirmed}/items/{w.item}",
+         json={"category": "remark", "content": "고친 내용", "reason": "잘못 들음"},
+     ),
+     {"manager": OK, "assigned": OK, "unassigned": 404, "other_manager": 404, "guardian": 403}),
+    ("PATCH", "/records/{record_id}/state",
+     lambda c, w: c.patch(
+         f"/records/{w.confirmed}/state", json={"meal_level": 3, "reason": "정정"}
+     ),
+     {"manager": OK, "assigned": OK, "unassigned": 404, "other_manager": 404, "guardian": 403}),
+    ("GET", "/recipients/{recipient_id}/audit", lambda c, w: c.get(f"/recipients/{w.rid}/audit"),
+     {"manager": OK, "assigned": 403, "unassigned": 403, "other_manager": 404, "guardian": 403}),
+    ("GET", "/recipients/{recipient_id}/export", lambda c, w: c.get(f"/recipients/{w.rid}/export"),
+     {"manager": OK, "assigned": 403, "unassigned": 403, "other_manager": 404, "guardian": 403}),
     ("GET", "/guardian/home", lambda c, w: c.get("/guardian/home"),
      {"manager": 403, "assigned": 403, "unassigned": 403, "other_manager": 403, "guardian": OK}),
 ]  # fmt: skip
