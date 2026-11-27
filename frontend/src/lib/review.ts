@@ -75,13 +75,85 @@ export function addHuman(
   ];
 }
 
-export const remaining = (cards: Card[]) => cards.filter((c) => c.state === "pending").length;
+/**
+ * 이전 방문의 '다음 확인' 사항. AI 제안이 있으면 pending(확인 필요)에서 시작하고,
+ * 없으면 open(미입력)에서 시작해 직접 쓰면 accepted가 된다. open은 그대로 두고 확정해도 된다.
+ */
+export type FollowupState = "pending" | "accepted" | "dismissed" | "open";
 
-export const canConfirm = (cards: Card[]) =>
-  remaining(cards) === 0 && cards.some((c) => c.state === "accepted");
+export interface FollowupCard {
+  itemId: string;
+  content: string;
+  visitedOn: string;
+  suggestion: {
+    result: string;
+    evidence: string | null;
+    evidenceFound: boolean;
+    segmentIndex: number | null;
+  } | null;
+  result: string;
+  evidence: string | null;
+  state: FollowupState;
+}
 
-export function buildConfirmBody(cards: Card[]): ConfirmBody {
-  if (remaining(cards) > 0) throw new Error("확인하지 않은 AI 항목이 있습니다");
+export function followupCardsFromDraft(draft: Draft | null): FollowupCard[] {
+  const results = new Map((draft?.followup_results ?? []).map((r) => [r.item_id, r]));
+  return (draft?.open_followups ?? []).map((f) => {
+    const r = results.get(f.item_id);
+    const suggestion = r
+      ? { result: r.result, evidence: r.evidence, evidenceFound: r.evidence_found, segmentIndex: r.segment_index }
+      : null;
+    return {
+      itemId: f.item_id,
+      content: f.content,
+      visitedOn: f.visited_on,
+      suggestion,
+      result: suggestion?.result ?? "",
+      evidence: suggestion?.evidence ?? null,
+      state: suggestion ? "pending" : "open",
+    };
+  });
+}
+
+function updateFollowup(fcards: FollowupCard[], id: string, patch: Partial<FollowupCard>): FollowupCard[] {
+  return fcards.map((f) => (f.itemId === id ? { ...f, ...patch } : f));
+}
+
+export const acceptFollowup = (fcards: FollowupCard[], id: string) =>
+  updateFollowup(fcards, id, { state: "accepted" });
+export const dismissFollowup = (fcards: FollowupCard[], id: string) =>
+  updateFollowup(fcards, id, { state: "dismissed" });
+
+/** 처음 상태로: 제안이 있으면 제안 내용으로 확인 필요, 없으면 미입력 */
+export function restoreFollowup(fcards: FollowupCard[], id: string): FollowupCard[] {
+  return fcards.map((f) =>
+    f.itemId === id
+      ? {
+          ...f,
+          result: f.suggestion?.result ?? "",
+          evidence: f.suggestion?.evidence ?? null,
+          state: f.suggestion ? "pending" : "open",
+        }
+      : f,
+  );
+}
+
+/** 결과를 직접 쓰거나 고친다. 근거는 AI 제안의 것을 유지한다. */
+export function writeFollowup(fcards: FollowupCard[], id: string, text: string): FollowupCard[] {
+  const result = text.trim();
+  if (!result) return fcards;
+  return updateFollowup(fcards, id, { result, state: "accepted" });
+}
+
+export const remaining = (cards: Card[], fcards: FollowupCard[] = []) =>
+  cards.filter((c) => c.state === "pending").length + fcards.filter((f) => f.state === "pending").length;
+
+export const canConfirm = (cards: Card[], fcards: FollowupCard[] = []) =>
+  remaining(cards, fcards) === 0 &&
+  (cards.some((c) => c.state === "accepted") || fcards.some((f) => f.state === "accepted"));
+
+export function buildConfirmBody(cards: Card[], fcards: FollowupCard[] = []): ConfirmBody {
+  if (remaining(cards, fcards) > 0) throw new Error("확인하지 않은 AI 항목이 있습니다");
   return {
     items: cards
       .filter((c) => c.state === "accepted")
@@ -96,5 +168,9 @@ export function buildConfirmBody(cards: Card[]): ConfirmBody {
     dismissed_draft_indexes: cards.flatMap((c) =>
       c.state === "dismissed" && c.draftIndex !== null ? [c.draftIndex] : [],
     ),
+    followup_checks: fcards
+      .filter((f) => f.state === "accepted")
+      .map((f) => ({ item_id: f.itemId, result: f.result, evidence: f.evidence })),
+    dismissed_followup_items: fcards.filter((f) => f.state === "dismissed").map((f) => f.itemId),
   };
 }
