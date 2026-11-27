@@ -198,3 +198,12 @@ class HandoverOut(BaseModel):
     recent_checks: list[RecentCheckOut]
     completion: CompletionOut
     summary: SummaryOutApi | None
+
+
+class SearchHitOut(BaseModel):
+    record_id: uuid.UUID
+    visited_on: date
+    kind: Literal["item", "check", "transcript"]
+    category: Category | None
+    text: str
+    item_id: uuid.UUID | None
