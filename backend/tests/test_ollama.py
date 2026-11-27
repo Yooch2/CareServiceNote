@@ -7,7 +7,8 @@ import pytest
 from app.ai.errors import PermanentAIError, TransientAIError
 from app.ai.fake import FAKE_CLASSIFICATION, FAKE_TRANSCRIPT
 from app.ai.local import OllamaClassifier
-from app.ai.types import OpenFollowup
+from app.ai.prompts import CLASSIFY_EXAMPLE_ANSWER, CLASSIFY_EXAMPLE_TRANSCRIPT
+from app.ai.types import Classification, OpenFollowup
 
 
 def _classifier(transport: httpx.MockTransport) -> OllamaClassifier:
@@ -30,7 +31,18 @@ def test_sends_schema_and_parses_reply() -> None:
     assert seen["stream"] is False
     assert isinstance(seen["format"], dict) and "properties" in seen["format"]
     messages = seen["messages"]
-    assert isinstance(messages, list) and FAKE_TRANSCRIPT.text in messages[1]["content"]
+    assert isinstance(messages, list) and FAKE_TRANSCRIPT.text in messages[-1]["content"]
+    # 시스템 → 예시(질문·답) → 실제 전사문 순서
+    assert [m["role"] for m in messages] == ["system", "user", "assistant", "user"]
+    Classification.model_validate_json(messages[2]["content"])
+
+
+def test_example_is_valid_and_quotes_its_transcript() -> None:
+    example = Classification.model_validate(CLASSIFY_EXAMPLE_ANSWER)
+    for item in example.items:
+        assert item.evidence in CLASSIFY_EXAMPLE_TRANSCRIPT
+    for topic in example.mentioned_topics:
+        assert topic.evidence in CLASSIFY_EXAMPLE_TRANSCRIPT
 
 
 @pytest.mark.parametrize(
@@ -73,7 +85,7 @@ def test_previous_followups_are_sent_without_ids() -> None:
     _classifier(httpx.MockTransport(handle)).classify(FAKE_TRANSCRIPT, followups)
     messages = seen["messages"]
     assert isinstance(messages, list)
-    assert "F1. 무릎 상태 다시 확인 (2026-11-20)" in messages[1]["content"]
+    assert "F1. 무릎 상태 다시 확인 (2026-11-20)" in messages[-1]["content"]
 
 
 def test_runaway_output_fails_fast() -> None:

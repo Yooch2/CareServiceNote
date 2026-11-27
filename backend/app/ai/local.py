@@ -1,3 +1,4 @@
+import json
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -6,7 +7,12 @@ import httpx
 from pydantic import BaseModel
 
 from app.ai.errors import PermanentAIError, TransientAIError
-from app.ai.prompts import CLASSIFY_SYSTEM, classify_user_message
+from app.ai.prompts import (
+    CLASSIFY_EXAMPLE_ANSWER,
+    CLASSIFY_EXAMPLE_TRANSCRIPT,
+    CLASSIFY_SYSTEM,
+    classify_user_message,
+)
 from app.ai.structured import parse_with_retry
 from app.ai.types import Classification, OpenFollowup, Segment, Transcript
 from app.config import settings
@@ -51,12 +57,29 @@ class OllamaClassifier:
         self, transcript: Transcript, followups: Sequence[OpenFollowup] = ()
     ) -> Classification:
         user = classify_user_message(transcript.text, followups)
-        return self.generate(CLASSIFY_SYSTEM, user, Classification)
+        # 7B 모델은 규칙만으로는 항목을 합쳐 버려서 예시 한 쌍을 앞에 둔다 (docs/eval 3단계)
+        example = [
+            {"role": "user", "content": classify_user_message(CLASSIFY_EXAMPLE_TRANSCRIPT)},
+            {
+                "role": "assistant",
+                "content": json.dumps(CLASSIFY_EXAMPLE_ANSWER, ensure_ascii=False),
+            },
+        ]
+        return parse_with_retry(
+            lambda: self._request(CLASSIFY_SYSTEM, user, Classification, example),
+            Classification,
+        )
 
     def generate[T: BaseModel](self, system: str, user: str, schema: type[T]) -> T:
         return parse_with_retry(lambda: self._request(system, user, schema), schema)
 
-    def _request(self, system: str, user: str, schema: type[BaseModel]) -> str:
+    def _request(
+        self,
+        system: str,
+        user: str,
+        schema: type[BaseModel],
+        example: list[dict[str, str]] | None = None,
+    ) -> str:
         try:
             res = self._client.post(
                 f"{self.url}/api/chat",
@@ -72,6 +95,7 @@ class OllamaClassifier:
                     },
                     "messages": [
                         {"role": "system", "content": system},
+                        *(example or []),
                         {"role": "user", "content": user},
                     ],
                 },
