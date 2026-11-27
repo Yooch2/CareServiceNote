@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, Cookie, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -11,7 +12,7 @@ from app.deps import SESSION_COOKIE, CurrentUser, DbSession
 from app.invites import hash_code
 from app.models import GuardianLink, Invite, Organization, User
 from app.schemas import LoginIn, SignupIn, UserOut
-from app.security import create_token, hash_password, verify_password
+from app.security import create_token, hash_password, read_token, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -51,11 +52,12 @@ def _claim_invite(db: Session, code: str) -> Invite:
 @router.post("/signup", status_code=status.HTTP_201_CREATED, response_model=UserOut)
 def signup(body: SignupIn, db: DbSession, request: Request, response: Response) -> User:
     """센터를 만들면 기관 담당자, 초대 코드로 가입하면 초대에 적힌 역할이 된다."""
-    attempt = (
-        throttle.reserve_invite(db, throttle.client_ip(request))
-        if body.invite_code is not None
-        else []
-    )
+    ip = throttle.client_ip(request)
+    if body.invite_code is not None:
+        attempt = throttle.reserve_invite(db, ip)
+    else:
+        throttle.reserve_signup(db, ip)
+        attempt = []
     user = User(
         login_id=body.login_id,
         password_hash=hash_password(body.password),
@@ -116,7 +118,13 @@ def login(body: LoginIn, db: DbSession, request: Request, response: Response) ->
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout() -> Response:
+def logout(db: DbSession, csn_session: Annotated[str | None, Cookie()] = None) -> Response:
+    """쿠키를 지우고, 이 사용자에게 지금까지 발급된 세션 토큰을 모두 무효로 한다."""
+    token = read_token(csn_session) if csn_session else None
+    user = db.get(User, token[0]) if token else None
+    if user is not None:
+        user.sessions_valid_after = datetime.now(UTC)
+        db.commit()
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
     response.delete_cookie(SESSION_COOKIE, path="/")
     return response

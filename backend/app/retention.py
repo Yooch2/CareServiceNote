@@ -1,7 +1,8 @@
 """보관 기간이 지난 파일·전사문을 지운다.
 
 워커가 한 시간마다 실행한다 (직접 실행: python -m app.retention).
-- 확정되지 않은 기록(초안·실패·처리 중)이 AUDIO_RETENTION_DAYS보다 오래되면 음성·사진 삭제
+- 확정되지 않은 기록(초안·실패·처리 중)이 AUDIO_RETENTION_DAYS보다 오래되면
+  음성·사진·전사문·초안 삭제
 - 확정 기록은 확정 후 TRANSCRIPT_RETENTION_DAYS가 지나면 전사문·구간·초안 삭제
   (확정 항목과 근거 구절은 공식 기록이라 남긴다)
 """
@@ -48,6 +49,20 @@ def purge(db: Session, now: datetime) -> PurgeResult:
             .where(VisitRecord.id.in_([r.id for r in audio_rows]))
             .values(audio_path=None)
         )
+    # 확정되지 않은 채 남은 기록(초안 방치·동의 철회·처리 실패)의 전사문·초안도 지운다
+    stale_texts = db.scalars(
+        update(VisitRecord)
+        .where(
+            *stale,
+            or_(
+                VisitRecord.transcript.is_not(None),
+                VisitRecord.transcript_segments.is_not(None),
+                VisitRecord.draft.is_not(None),
+            ),
+        )
+        .values(transcript=None, transcript_segments=None, draft=None)
+        .returning(VisitRecord.id)
+    ).all()
     if photo_rows:
         db.execute(
             update(RecordPhoto)
@@ -85,7 +100,7 @@ def purge(db: Session, now: datetime) -> PurgeResult:
     # DB에서 경로를 지운 뒤 파일을 지운다 (반대 순서면 실패 시 없는 파일을 가리키게 된다)
     for _, path in [*audio_rows, *photo_rows]:
         storage.delete(path)
-    result = PurgeResult(len(audio_rows), len(photo_rows), len(transcripts))
+    result = PurgeResult(len(audio_rows), len(photo_rows), len(transcripts) + len(stale_texts))
     if any((result.audio, result.photos, result.transcripts)):
         log.info("retention purge: %s", result)
     return result

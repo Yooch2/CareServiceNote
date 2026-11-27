@@ -67,6 +67,8 @@ class User(Base):
     org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
     role: Mapped[str] = mapped_column(Text)
     active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    # 로그아웃한 시각. 이보다 먼저 발급된 세션 토큰은 모두 무효 (모든 기기에서 로그아웃)
+    sessions_valid_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     login_id: Mapped[str] = mapped_column(Text, unique=True)
     password_hash: Mapped[str] = mapped_column(Text)
     display_name: Mapped[str] = mapped_column(Text)

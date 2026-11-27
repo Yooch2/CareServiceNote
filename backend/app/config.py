@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     login_max_failures_per_account: int = 30  # IP와 상관없이 한 시간
     login_lock_minutes: int = 15
     invite_max_failures_per_hour: int = 10
+    signup_max_per_ip_per_hour: int = 5  # 센터 만들기
     invite_failures_alert_per_hour: int = 200  # 넘으면 경고 로그 (막지는 않음)
     # 운영처럼 Caddy 뒤에서만 API에 닿을 때 X-Forwarded-For를 클라이언트 IP로 믿는다
     trust_proxy: bool = False

@@ -28,17 +28,22 @@ def create_token(user_id: uuid.UUID) -> str:
     now = datetime.now(UTC)
     payload = {
         "sub": str(user_id),
-        "iat": now,
+        # 로그아웃 시각과 비교하려고 초 미만까지 남긴다 (JWT NumericDate는 소수 허용)
+        "iat": now.timestamp(),
         "exp": now + timedelta(hours=settings.jwt_ttl_hours),
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
 
 
-def read_token(token: str) -> uuid.UUID | None:
+def read_token(token: str) -> tuple[uuid.UUID, float] | None:
+    """(사용자 id, 발급 시각 epoch 초)"""
     try:
         payload = jwt.decode(
-            token, settings.jwt_secret, algorithms=["HS256"], options={"require": ["exp", "sub"]}
+            token,
+            settings.jwt_secret,
+            algorithms=["HS256"],
+            options={"require": ["exp", "sub", "iat"]},
         )
-        return uuid.UUID(payload["sub"])
-    except (jwt.InvalidTokenError, ValueError):
+        return uuid.UUID(payload["sub"]), float(payload["iat"])
+    except (jwt.InvalidTokenError, ValueError, TypeError):
         return None

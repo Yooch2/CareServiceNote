@@ -147,6 +147,16 @@ def remember_success(db: Session, login_id: str, ip: str) -> None:
     db.add(AuthFailure(kind="login_ok", key=_known_key(login_id.strip().lower(), ip)))
 
 
+def reserve_signup(db: Session, ip: str) -> None:
+    """센터 만들기는 IP별 한 시간 SIGNUP_MAX_PER_IP_PER_HOUR번. 성공해도 지우지 않는다
+    (계정·센터를 무한히 만들거나 argon2 해시로 CPU를 쓰게 하는 것을 막는다)."""
+    _reserve(
+        db,
+        [Rule("signup_ip", _hash(ip), settings.signup_max_per_ip_per_hour, timedelta(hours=1))],
+        "가입 요청이 많아 잠시 막았습니다. 한 시간 뒤에 다시 시도해 주세요",
+    )
+
+
 def reserve_invite(db: Session, ip: str) -> list[uuid.UUID]:
     """IP별로만 막는다. 전체 실패 수로 막으면 다른 사람의 올바른 코드까지 막혀서,
     전체 실패가 많을 때는 경고 로그만 남긴다(운영자가 알아챌 수 있게)."""
