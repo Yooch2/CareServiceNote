@@ -12,3 +12,6 @@ __pycache__/
 
 # 업로드된 음성 (로컬)
 backend/var/
+
+# 배포 백업 (서버에서 만들어짐)
+deploy/backups/

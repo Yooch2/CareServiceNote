@@ -3,15 +3,19 @@
 시도를 확인하기 **전에** 실패 한 번으로 미리 기록하고(잠금 안에서 개수 확인 + 기록 + 커밋),
 성공하면 그 기록을 지운다. 확인과 기록이 한 잠금 안에 있어 동시 요청으로 한도를 넘지 못한다.
 
-- 로그인: (아이디 + 클라이언트 IP)별 15분 5번, IP별 15분 30번.
-  다른 네트워크에서 남의 아이디로 실패를 쌓아도 그 사람은 막히지 않는다.
+- 로그인: (아이디 + 클라이언트 IP)별 15분 5번, IP별 15분 30번,
+  그리고 IP와 상관없이 아이디별 한 시간 30번(여러 IP로 나눠 대입하는 경우).
+  다른 네트워크에서 남의 아이디로 실패를 몇 번 쌓아도 그 사람은 막히지 않는다.
+  다만 한 시간에 30번 넘게 쌓으면 그 아이디가 잠기는 것은 감수한다(대입 방지와의 절충).
   없는 아이디도 같은 방식으로 세서 막히는지로 아이디 존재를 알 수 없다.
-- 초대 코드: IP별 한 시간 10번. 다른 사람의 실패로 올바른 코드가 막히지 않는다.
+- 초대 코드: IP별 한 시간 10번, 서비스 전체 한 시간 200번(비상 차단).
+- IPv6는 /64 단위로 묶어 센다 (한 가입자가 보통 /64 전체를 쓴다).
 
 키는 해시만 저장한다 (아이디·IP 원문을 남기지 않음).
 """
 
 import hashlib
+import ipaddress
 import uuid
 from datetime import timedelta
 
@@ -25,6 +29,16 @@ from app.models import AuthFailure
 _LOCK = 7_301_004  # advisory lock 번호 (키별 두 번째 값)
 
 
+def _ip_bucket(ip: str) -> str:
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip
+    if addr.version == 6:
+        return str(ipaddress.ip_network(f"{addr}/64", strict=False))
+    return str(addr)
+
+
 def client_ip(request: Request) -> str:
     """운영(TRUST_PROXY)에서는 Caddy가 넣은 X-Forwarded-For를, 아니면 직접 연결한 주소를 쓴다.
 
@@ -33,8 +47,8 @@ def client_ip(request: Request) -> str:
     """
     forwarded = request.headers.get("x-forwarded-for")
     if settings.trust_proxy and forwarded:
-        return forwarded.split(",")[-1].strip()
-    return request.client.host if request.client else "unknown"
+        return _ip_bucket(forwarded.split(",")[-1].strip())
+    return _ip_bucket(request.client.host) if request.client else "unknown"
 
 
 def _hash(*parts: str) -> str:
@@ -78,6 +92,12 @@ def reserve_login(db: Session, login_id: str, ip: str) -> list[uuid.UUID]:
         [
             ("login", _hash(login_id.strip().lower(), ip), settings.login_max_failures, window),
             ("login_ip", _hash(ip), settings.login_max_failures_per_ip, window),
+            (
+                "login_account",
+                _hash(login_id.strip().lower()),
+                settings.login_max_failures_per_account,
+                timedelta(hours=1),
+            ),
         ],
         f"로그인 실패가 많아 잠시 막았습니다. "
         f"{settings.login_lock_minutes}분 뒤에 다시 시도해 주세요",
@@ -87,6 +107,9 @@ def reserve_login(db: Session, login_id: str, ip: str) -> list[uuid.UUID]:
 def reserve_invite(db: Session, ip: str) -> list[uuid.UUID]:
     return _reserve(
         db,
-        [("invite_ip", _hash(ip), settings.invite_max_failures_per_hour, timedelta(hours=1))],
+        [
+            ("invite_ip", _hash(ip), settings.invite_max_failures_per_hour, timedelta(hours=1)),
+            ("invite_all", "all", settings.invite_max_failures_total_per_hour, timedelta(hours=1)),
+        ],
         "초대 코드 확인이 잠시 막혀 있습니다. 한 시간 뒤에 다시 시도해 주세요",
     )

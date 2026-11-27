@@ -33,8 +33,10 @@ class Settings(BaseSettings):
     # 시도 횟수 제한 (app/throttle.py): (아이디+IP)별·IP별 로그인 실패, IP별 초대 코드 실패
     login_max_failures: int = 5
     login_max_failures_per_ip: int = 30
+    login_max_failures_per_account: int = 30  # IP와 상관없이 한 시간
     login_lock_minutes: int = 15
     invite_max_failures_per_hour: int = 10
+    invite_max_failures_total_per_hour: int = 200  # 서비스 전체 비상 차단
     # 운영처럼 Caddy 뒤에서만 API에 닿을 때 X-Forwarded-For를 클라이언트 IP로 믿는다
     trust_proxy: bool = False
 

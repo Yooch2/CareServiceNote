@@ -159,3 +159,30 @@ def test_production_settings_refuse_unsafe_values() -> None:
         gemini_api_key="g",
     )
     assert ok.env == "production"
+
+
+def test_account_ceiling_across_ips(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """여러 IP로 나눠 같은 아이디를 대입하는 경우 IP와 상관없는 아이디별 상한에 걸린다"""
+    monkeypatch.setattr(settings, "trust_proxy", True)
+    monkeypatch.setattr(settings, "login_max_failures_per_account", 4)
+    for n in range(4):
+        res = client.post(
+            "/auth/login",
+            json={"login_id": "target01", "password": "wrong-pass-1"},
+            headers={"X-Forwarded-For": f"203.0.113.{n}"},
+        )
+        assert res.status_code == 401
+    res = client.post(
+        "/auth/login",
+        json={"login_id": "target01", "password": "wrong-pass-1"},
+        headers={"X-Forwarded-For": "203.0.113.99"},
+    )
+    assert res.status_code == 429
+
+
+def test_ipv6_grouped_by_64() -> None:
+    from app.throttle import _ip_bucket
+
+    assert _ip_bucket("2001:db8:1:2:aaaa::1") == _ip_bucket("2001:db8:1:2:bbbb::9")
+    assert _ip_bucket("2001:db8:1:2::1") != _ip_bucket("2001:db8:1:3::1")
+    assert _ip_bucket("203.0.113.5") == "203.0.113.5"
