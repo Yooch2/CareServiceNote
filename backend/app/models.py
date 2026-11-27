@@ -12,8 +12,9 @@ from sqlalchemy import (
     Integer,
     Text,
     func,
+    text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -22,27 +23,177 @@ RECORD_STATUSES = ("queued", "transcribing", "classifying", "draft_ready", "fail
 CATEGORIES = ("remark", "observation", "followup")
 RISK_TAGS = ("fall", "medication", "pain")
 ORIGINS = ("ai", "ai_edited", "human")
+ROLES = ("manager", "caregiver", "guardian")
+CONSENT_KINDS = ("health_record", "guardian_share")
 
 
 def _one_of(column: str, values: tuple[str, ...]) -> str:
     return f"{column} IN ({', '.join(repr(v) for v in values)})"
 
 
-class User(Base):
-    __tablename__ = "users"
+_CATEGORY_SUBSET = "categories <@ ARRAY['remark', 'observation', 'followup']::text[]"
+
+
+class Organization(Base):
+    """방문요양센터. 사용자와 수급자는 한 센터에 속한다."""
+
+    __tablename__ = "organizations"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class User(Base):
+    __tablename__ = "users"
+    __table_args__ = (CheckConstraint(_one_of("role", ROLES), name="ck_users_role"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
+    role: Mapped[str] = mapped_column(Text)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     login_id: Mapped[str] = mapped_column(Text, unique=True)
     password_hash: Mapped[str] = mapped_column(Text)
     display_name: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    org: Mapped[Organization] = relationship(lazy="joined", viewonly=True)
+
+    @property
+    def org_name(self) -> str:
+        return self.org.name
 
 
 class Recipient(Base):
     __tablename__ = "recipients"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
     name: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    active_consents: Mapped[list["Consent"]] = relationship(
+        primaryjoin="and_(Consent.recipient_id == Recipient.id, Consent.withdrawn_at.is_(None))",
+        lazy="selectin",
+        viewonly=True,
+    )
+    active_assignments: Mapped[list["Assignment"]] = relationship(
+        primaryjoin="and_(Assignment.recipient_id == Recipient.id, Assignment.ended_at.is_(None))",
+        order_by="Assignment.started_at",
+        lazy="selectin",
+        viewonly=True,
+    )
+
+    @property
+    def consents(self) -> list[str]:
+        return sorted(c.kind for c in self.active_consents)
+
+    @property
+    def caregiver_names(self) -> list[str]:
+        return [a.caregiver.display_name for a in self.active_assignments]
+
+
+class Assignment(Base):
+    """담당 배정. 해제하면 행을 지우지 않고 ended_at을 채운다."""
+
+    __tablename__ = "assignments"
+    __table_args__ = (
+        Index(
+            "uq_assignments_active",
+            "recipient_id",
+            "caregiver_id",
+            unique=True,
+            postgresql_where=text("ended_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    recipient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("recipients.id"), index=True)
+    caregiver_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+
+    caregiver: Mapped[User] = relationship(
+        foreign_keys=[caregiver_id], lazy="joined", viewonly=True
+    )
+
+
+class Consent(Base):
+    """센터가 서면으로 받은 동의를 기록한다. 철회해도 지우지 않고 withdrawn_at을 채운다."""
+
+    __tablename__ = "consents"
+    __table_args__ = (
+        CheckConstraint(_one_of("kind", CONSENT_KINDS), name="ck_consents_kind"),
+        Index(
+            "uq_consents_active",
+            "recipient_id",
+            "kind",
+            unique=True,
+            postgresql_where=text("withdrawn_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    recipient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("recipients.id"), index=True)
+    kind: Mapped[str] = mapped_column(Text)
+    granted_on: Mapped[date] = mapped_column(Date)
+    recorded_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    withdrawn_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+
+
+class GuardianLink(Base):
+    """보호자 계정과 수급자 연결. categories = 볼 수 있는 분류 (열람 범위)."""
+
+    __tablename__ = "guardian_links"
+    __table_args__ = (
+        CheckConstraint(
+            f"cardinality(categories) > 0 AND {_CATEGORY_SUBSET}",
+            name="ck_guardian_links_categories",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    recipient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("recipients.id"), index=True)
+    guardian_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), unique=True)
+    categories: Mapped[list[str]] = mapped_column(ARRAY(Text))
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    guardian: Mapped[User] = relationship(lazy="joined", viewonly=True)
+
+
+class Invite(Base):
+    """일회용 초대 코드. 원문은 만들 때 한 번만 보여 주고 해시만 저장한다."""
+
+    __tablename__ = "invites"
+    __table_args__ = (
+        CheckConstraint("role IN ('caregiver', 'guardian')", name="ck_invites_role"),
+        CheckConstraint(
+            "role <> 'guardian' OR (recipient_id IS NOT NULL AND categories IS NOT NULL)",
+            name="ck_invites_guardian_target",
+        ),
+        CheckConstraint(
+            f"categories IS NULL OR (cardinality(categories) > 0 AND {_CATEGORY_SUBSET})",
+            name="ck_invites_categories",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
+    role: Mapped[str] = mapped_column(Text)
+    recipient_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("recipients.id"))
+    categories: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
+    code_hash: Mapped[str] = mapped_column(Text, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    used_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -82,6 +233,13 @@ class VisitRecord(Base):
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 센터 확인 서명 (기관 담당자)
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    reviewer: Mapped[User | None] = relationship(
+        foreign_keys=[reviewed_by], lazy="selectin", viewonly=True
+    )
 
     items: Mapped[list["RecordItem"]] = relationship(
         order_by="RecordItem.position", cascade="all, delete-orphan", lazy="selectin"
@@ -97,6 +255,12 @@ class VisitRecord(Base):
     @property
     def has_audio(self) -> bool:
         return self.audio_path is not None
+
+    @property
+    def review(self) -> dict[str, Any] | None:
+        if self.reviewer is None or self.reviewed_at is None:
+            return None
+        return {"reviewer_name": self.reviewer.display_name, "reviewed_at": self.reviewed_at}
 
 
 class RecordItem(Base):

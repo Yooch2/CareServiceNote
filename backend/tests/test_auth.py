@@ -17,7 +17,12 @@ def test_signup_sets_cookie_and_me_works(client: TestClient) -> None:
 def test_session_cookie_is_httponly(client: TestClient) -> None:
     res = client.post(
         "/auth/signup",
-        json={"login_id": "carer02", "password": "password123", "display_name": "이요양"},
+        json={
+            "login_id": "carer02",
+            "password": "password123",
+            "display_name": "이요양",
+            "center_name": "가상센터",
+        },
     )
     header = res.headers["set-cookie"].lower()
     assert "httponly" in header
@@ -28,17 +33,32 @@ def test_signup_duplicate_login_id(client: TestClient) -> None:
     signup(client)
     res = client.post(
         "/auth/signup",
-        json={"login_id": "carer01", "password": "password123", "display_name": "다른"},
+        json={
+            "login_id": "carer01",
+            "password": "password123",
+            "display_name": "다른",
+            "center_name": "다른센터",
+        },
     )
     assert res.status_code == 409
 
 
 def test_signup_validation(client: TestClient) -> None:
+    center = {"center_name": "가상센터"}
     for body in (
-        {"login_id": "ab", "password": "password123", "display_name": "x"},
-        {"login_id": "Upper01", "password": "password123", "display_name": "x"},
-        {"login_id": "carer03", "password": "short", "display_name": "x"},
-        {"login_id": "carer03", "password": "password123", "display_name": "   "},
+        {"login_id": "ab", "password": "password123", "display_name": "x", **center},
+        {"login_id": "Upper01", "password": "password123", "display_name": "x", **center},
+        {"login_id": "carer03", "password": "short", "display_name": "x", **center},
+        {"login_id": "carer03", "password": "password123", "display_name": "   ", **center},
+        # 센터 이름과 초대 코드는 둘 중 하나만
+        {"login_id": "carer03", "password": "password123", "display_name": "x"},
+        {
+            "login_id": "carer03",
+            "password": "password123",
+            "display_name": "x",
+            **center,
+            "invite_code": "ABCDE-FGHJK",
+        },
     ):
         assert client.post("/auth/signup", json=body).status_code == 422
 

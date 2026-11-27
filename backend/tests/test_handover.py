@@ -12,7 +12,7 @@ from app.config import settings
 from app.main import app
 from app.models import FollowupCheck
 from app.routers.handover import get_llm
-from tests.helpers import add_recipient, make_confirmed, signup
+from tests.helpers import add_recipient, colleague, make_confirmed, signup
 
 TODAY = date.today()
 
@@ -182,5 +182,5 @@ def test_summary_total_cap(
     _history(db, rid)
     monkeypatch.setattr(settings, "daily_summaries_total", 1)
     assert client.post(f"/recipients/{rid}/handover/summary").status_code == 200
-    signup(other_client, login_id="carer99")
+    colleague(client, other_client, assign_to=str(rid))
     assert other_client.post(f"/recipients/{rid}/handover/summary").status_code == 429
