@@ -64,8 +64,25 @@ pnpm dev                      # /api/* 요청은 BACKEND_URL(기본 http://127.0
 ```bash
 cd backend && uv run pytest              # 테스트 DB(csn_test) 자동 생성
 cd backend && uv run pytest -m live -s   # 실제 AI 모델 호출 (수동)
-cd frontend && pnpm lint
+cd frontend && pnpm lint && pnpm test && pnpm build   # 단위 테스트는 Node 내장 테스트 러너
+cd frontend && pnpm e2e                  # Playwright E2E (fake AI 백엔드·워커를 자동 실행, DB는 docker compose로 먼저 띄우기)
 ```
+
+E2E는 이미 8001·3100 포트에 떠 있는 서버를 재사용하므로, 직접 띄워 둔 백엔드가 있다면 `AI_PROVIDER=fake`여야 합니다.
+
+## 화면 흐름
+
+1. 가입·로그인 → 수급자 선택
+2. 녹음 전 고지 확인 → 녹음(또는 음성 파일) → 기록 올리기
+3. 처리 중 화면(전사 → 분류) → 검토
+   - 말씀 / 관찰 / 다음 확인 항목마다 AI 초안 표시, 근거 구절을 누르면 전사문 구간 강조 + 그 시점부터 재생
+   - 녹음에서 근거를 찾지 못한 항목, 위험 항목(낙상·복약·통증), 언급 없는 주제 안내
+   - AI 항목을 모두 확인·수정·삭제해야 확정 가능
+4. 확정 후에는 읽기 전용, 항목마다 출처(AI 초안 그대로 / 수정 / 직접 작성) 표시
+
+### 오프라인 녹음
+
+업로드 중 연결이 끊기거나 서버 오류가 나면 녹음을 브라우저 IndexedDB(`csn-offline`)에 저장하고, 앱을 다시 열거나 연결이 돌아오면 같은 기록 ID로 다시 올립니다(서버가 같은 ID를 중복 저장하지 않음). 대기열에는 음성, 기록·수급자·사용자 UUID, 날짜만 저장하고 수급자 이름은 넣지 않습니다. 로그아웃하거나 다른 사용자가 로그인하면 기기에 남은 녹음을 지웁니다.
 
 ## 개인정보 원칙
 
