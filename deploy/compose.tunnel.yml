@@ -1,0 +1,20 @@
+# 비용 없이 공개하기: 이 컴퓨터에서 띄우고 Cloudflare 무료 임시 터널(trycloudflare.com)로 연다.
+#   docker compose -f compose.yml -f compose.tunnel.yml up -d --build
+#   docker compose -f compose.yml -f compose.tunnel.yml logs cloudflared | grep trycloudflare.com
+# 계정·카드·도메인이 필요 없지만, 이 컴퓨터가 켜져 있을 때만 열리고 주소는 다시 띄울 때마다 바뀐다.
+
+services:
+  caddy:
+    ports: !reset [] # 밖으로 포트를 열지 않는다 (cloudflared만 접근)
+    environment:
+      DOMAIN: localhost # 이 모드에서는 쓰지 않음
+    volumes: !override
+      - ./Caddyfile.tunnel:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.10.0
+    command: ["tunnel", "--no-autoupdate", "--url", "http://caddy:80"]
+    depends_on:
+      - caddy
+    restart: unless-stopped
