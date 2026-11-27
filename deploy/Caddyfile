@@ -1,0 +1,25 @@
+# DOMAIN의 HTTPS 인증서는 Caddy가 자동으로 받는다 (localhost면 자체 인증서)
+{$DOMAIN} {
+	encode zstd gzip
+
+	# 음성 10MB + 폼 여유. 더 큰 요청은 API까지 가지 않는다
+	request_body {
+		max_size 12MB
+	}
+
+	# 같은 출처로 묶어 세션 쿠키를 그대로 쓰고, 업로드는 화면 서버를 거치지 않고 API로 바로 보낸다
+	handle_path /api/* {
+		reverse_proxy api:8001
+	}
+	handle {
+		reverse_proxy web:3000
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		Permissions-Policy "microphone=(self), camera=(self), geolocation=()"
+		-Server
+	}
+}

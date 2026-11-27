@@ -1,11 +1,15 @@
 from pathlib import Path
 from typing import Literal
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    # production이면 시작할 때 위험한 설정을 막는다 (_check_production)
+    env: Literal["development", "production"] = "development"
 
     database_url: str = "postgresql+psycopg://csn:csn@localhost:5433/csn"
 
@@ -26,6 +30,15 @@ class Settings(BaseSettings):
     daily_records_total: int = 200
     daily_summaries_per_user: int = 20
     daily_summaries_total: int = 200
+    # 시도 횟수 제한 (app/throttle.py): (아이디+IP)별·IP별 로그인 실패, IP별 초대 코드 실패
+    login_max_failures: int = 5
+    login_max_failures_per_ip: int = 30
+    login_max_failures_per_account: int = 30  # IP와 상관없이 한 시간
+    login_lock_minutes: int = 15
+    invite_max_failures_per_hour: int = 10
+    invite_failures_alert_per_hour: int = 200  # 넘으면 경고 로그 (막지는 않음)
+    # 운영처럼 Caddy 뒤에서만 API에 닿을 때 X-Forwarded-For를 클라이언트 IP로 믿는다
+    trust_proxy: bool = False
 
     ai_provider: Literal["fake", "local", "gemini"] = "fake"
     mlx_whisper_model: str = "mlx-community/whisper-large-v3-turbo"
@@ -37,6 +50,25 @@ class Settings(BaseSettings):
     ollama_num_ctx: int = 8192
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.5-flash-lite"
+
+    @model_validator(mode="after")
+    def _check_production(self) -> "Settings":
+        if self.env != "production":
+            return self
+        problems = []
+        if not self.cookie_secure:
+            problems.append("COOKIE_SECURE=true 여야 합니다 (HTTPS 전용 쿠키)")
+        if len(self.jwt_secret) < 32 or "change-me" in self.jwt_secret:
+            problems.append("JWT_SECRET을 32자 이상 임의 문자열로 바꿔야 합니다")
+        if not self.storage_key:
+            problems.append("STORAGE_KEY가 필요합니다 (python -m app.storage)")
+        if self.ai_provider == "fake":
+            problems.append("AI_PROVIDER가 fake입니다")
+        if self.ai_provider == "gemini" and not self.gemini_api_key:
+            problems.append("GEMINI_API_KEY가 없습니다")
+        if problems:
+            raise ValueError("운영 설정 오류: " + " / ".join(problems))
+        return self
 
 
 settings = Settings()  # pyright: ignore[reportCallIssue]  # jwt_secret은 환경변수에서 읽음

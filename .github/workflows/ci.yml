@@ -52,3 +52,16 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm build
+
+  # 배포 이미지가 깨지지 않았는지만 확인한다 (올리지는 않음)
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t csn-backend backend
+      - run: docker build -t csn-frontend frontend
+      - name: 운영 설정 검사가 위험한 값을 막는지
+        run: |
+          if docker run --rm -e ENV=production -e JWT_SECRET=short csn-backend python -c "import app.config"; then
+            echo "운영 설정 검사가 통과되면 안 됩니다"; exit 1
+          fi
