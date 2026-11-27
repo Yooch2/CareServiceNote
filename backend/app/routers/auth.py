@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app import throttle
 from app.config import settings
 from app.deps import SESSION_COOKIE, CurrentUser, DbSession
 from app.invites import hash_code
@@ -33,6 +34,7 @@ def _set_session(response: Response, user: User) -> None:
 
 def _claim_invite(db: Session, code: str) -> Invite:
     """쓸 수 있는 초대를 잠근다. 같은 코드로 동시에 가입하면 한 명만 통과한다."""
+    throttle.check_invite(db)
     invite = db.scalar(
         select(Invite)
         .where(
@@ -43,6 +45,8 @@ def _claim_invite(db: Session, code: str) -> Invite:
         .with_for_update()
     )
     if invite is None:
+        db.rollback()
+        throttle.invite_failed(db)
         raise HTTPException(status.HTTP_400_BAD_REQUEST, _BAD_INVITE)
     return invite
 
@@ -91,10 +95,14 @@ def _join_by_invite(db: Session, user: User, code: str) -> None:
 
 @router.post("/login", response_model=UserOut)
 def login(body: LoginIn, db: DbSession, response: Response) -> User:
+    throttle.check_login(db, body.login_id)
     user = db.scalar(select(User).where(User.login_id == body.login_id))
     ok = verify_password(user.password_hash if user else None, body.password)
     if not ok or user is None or not user.active:
+        throttle.login_failed(db, body.login_id)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, _BAD_LOGIN)
+    throttle.login_succeeded(db, body.login_id)
+    db.commit()
     _set_session(response, user)
     return user
 

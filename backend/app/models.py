@@ -581,3 +581,15 @@ class RecordPhoto(Base):
     @property
     def available(self) -> bool:
         return self.path is not None
+
+
+class AuthFailure(Base):
+    """로그인·초대 코드 실패 기록 (시도 횟수 제한용). key는 아이디의 해시나 'invite'."""
+
+    __tablename__ = "auth_failures"
+    __table_args__ = (Index("ix_auth_failures_lookup", "kind", "key", "created_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    kind: Mapped[str] = mapped_column(Text)
+    key: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
