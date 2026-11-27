@@ -9,3 +9,6 @@ __pycache__/
 .venv/
 .pytest_cache/
 .ruff_cache/
+
+# 업로드된 음성 (로컬)
+backend/var/
