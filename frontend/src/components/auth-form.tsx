@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, type SubmitEvent } from "react";
+import { useLayoutEffect, useState, type SubmitEvent } from "react";
 
 import { ApiError, postJson } from "@/lib/api";
 import { Button, Field, Notice } from "./ui";
@@ -12,6 +12,15 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const signup = mode === "signup";
+
+  // 로그인 후 숨겨진 화면(Activity)이 '진행 중'으로 남지 않게, 숨겨질 때 초기화한다
+  useLayoutEffect(
+    () => () => {
+      setPending(false);
+      setError(null);
+    },
+    [],
+  );
 
   async function submit(e: SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
