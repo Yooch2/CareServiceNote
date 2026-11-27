@@ -1,0 +1,46 @@
+# 무료 Cloudflare 터널용: HTTPS는 Cloudflare가 맡고, Caddy는 터널 안쪽에서 HTTP로만 받는다.
+# Caddy 포트는 밖으로 열지 않으므로 Caddy에 닿는 것은 cloudflared 컨테이너뿐이다.
+{
+	servers {
+		# cloudflared(같은 Docker 네트워크)만 믿고, 그것이 넘기는 Cf-Connecting-IP를 실제 클라이언트 IP로 쓴다
+		trusted_proxies static private_ranges
+		client_ip_headers Cf-Connecting-IP
+	}
+}
+
+:80 {
+	encode zstd gzip
+
+	request_body {
+		max_size 12MB
+	}
+
+	handle_path /api/* {
+		reverse_proxy api:8001 {
+			# API의 시도 횟수 제한이 실제 클라이언트 IP를 보도록 덮어쓴다
+			header_up X-Forwarded-For {client_ip}
+		}
+	}
+	handle {
+		reverse_proxy web:3000
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		Permissions-Policy "microphone=(self), camera=(self), geolocation=()"
+		-Server
+	}
+
+	log {
+		output stdout
+		format filter {
+			wrap json
+			fields {
+				request>headers delete
+				request>uri delete
+			}
+		}
+	}
+}
