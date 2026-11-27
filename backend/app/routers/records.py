@@ -136,6 +136,7 @@ def confirm_record(
     record_id: uuid.UUID, body: ConfirmIn, user: CaregiverUser, db: DbSession
 ) -> VisitRecord:
     record = record_for_staff(db, user, record_id, own=True, for_update=True)
+    require_health_consent(db, record.recipient_id)
     if record.status not in ("draft_ready", "failed"):
         raise HTTPException(status.HTTP_409_CONFLICT, "지금은 확정할 수 없는 상태입니다")
     draft = record.draft or {}
@@ -173,6 +174,7 @@ def review_record(record_id: uuid.UUID, user: ManagerUser, db: DbSession) -> Vis
         raise HTTPException(status.HTTP_409_CONFLICT, "이미 확인 서명한 기록입니다")
     record.reviewed_by, record.reviewed_at = user.id, datetime.now(UTC)
     db.commit()
+    db.refresh(record, ["reviewer"])
     return record
 
 

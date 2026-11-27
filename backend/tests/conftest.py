@@ -55,6 +55,13 @@ def client() -> Iterator[TestClient]:
 
 
 @pytest.fixture
+def other_client() -> Iterator[TestClient]:
+    """쿠키가 따로인 두 번째 사용자"""
+    with TestClient(app) as c:
+        yield c
+
+
+@pytest.fixture
 def db() -> Iterator[Session]:
     with SessionLocal() as session:
         yield session

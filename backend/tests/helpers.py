@@ -188,6 +188,7 @@ def make_record(
     transcript: str | None = None,
     with_audio: bool = True,
     recipient_id: uuid.UUID | None = None,
+    consent: bool = True,
 ) -> VisitRecord:
     org = new_org(db)
     user = make_user(db, org.id, display_name="워커테스트")
@@ -197,6 +198,16 @@ def make_record(
         db.flush()
         recipient_id = recipient.id
     db.flush()
+    if (
+        consent
+        and db.scalar(
+            select(Consent.id).where(
+                Consent.recipient_id == recipient_id, Consent.withdrawn_at.is_(None)
+            )
+        )
+        is None
+    ):
+        give_consent(db, recipient_id, user.id)
     record_id = uuid.uuid4()
     audio_path = None
     if with_audio:

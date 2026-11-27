@@ -1,5 +1,4 @@
 import uuid
-from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -11,12 +10,6 @@ from app.config import settings
 from app.main import app
 from app.models import VisitRecord
 from tests.helpers import add_recipient, colleague, put_audio, signup
-
-
-@pytest.fixture
-def other_client() -> Iterator[TestClient]:
-    with TestClient(app) as c:
-        yield c
 
 
 def test_put_creates_then_is_idempotent(client: TestClient, db: Session) -> None:

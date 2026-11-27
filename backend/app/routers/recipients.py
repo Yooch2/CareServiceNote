@@ -90,9 +90,7 @@ def get_admin(recipient: ManagedRecipient, db: DbSession, _: ManagerUser) -> Rec
             select(VisitRecord.caregiver_id, func.count())
             .where(VisitRecord.recipient_id == recipient.id, VisitRecord.status != "confirmed")
             .group_by(VisitRecord.caregiver_id)
-        )
-        .tuples()
-        .all()
+        ).all()
     )
     consents = db.scalars(
         select(Consent)

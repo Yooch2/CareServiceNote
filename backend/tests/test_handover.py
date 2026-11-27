@@ -18,12 +18,6 @@ TODAY = date.today()
 
 
 @pytest.fixture
-def other_client() -> Iterator[TestClient]:
-    with TestClient(app) as c:
-        yield c
-
-
-@pytest.fixture
 def llm() -> Iterator[FakeClassifier]:
     fake = FakeClassifier()
     app.dependency_overrides[get_llm] = lambda: fake
