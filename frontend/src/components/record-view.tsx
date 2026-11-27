@@ -6,10 +6,11 @@ import { useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { PROCESSING, STATUS_LABEL } from "@/lib/labels";
 import type { VisitRecord } from "@/lib/types";
+import { useUser } from "./auth-gate";
 import { ConfirmedView } from "./confirmed-view";
 import { BackLink, statusTone } from "./recipient-view";
 import { ReviewPanel } from "./review-panel";
-import { Badge, Loading, Notice, PageTitle } from "./ui";
+import { Badge, Button, Loading, Notice, PageTitle } from "./ui";
 
 const POLL_MS = 1500;
 
@@ -59,7 +60,49 @@ export function RecordView() {
       {(record.status === "draft_ready" || record.status === "failed") && (
         <ReviewPanel key={record.status} record={record} onConfirmed={setRecord} />
       )}
-      {record.status === "confirmed" && <ConfirmedView record={record} />}
+      {record.status === "confirmed" && (
+        <>
+          <ReviewSignature record={record} onSigned={setRecord} />
+          <ConfirmedView record={record} />
+        </>
+      )}
     </>
+  );
+}
+
+/** 센터 확인 서명: 기관 담당자가 확정 기록을 읽었다는 표시 */
+function ReviewSignature({ record, onSigned }: { record: VisitRecord; onSigned: (r: VisitRecord) => void }) {
+  const user = useUser();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (record.review) {
+    return (
+      <p className="mb-5 flex flex-wrap items-center gap-2 text-muted">
+        <Badge tone="pine">센터 확인</Badge>
+        {record.review.reviewer_name} · {new Date(record.review.reviewed_at).toLocaleString("ko-KR")}
+      </p>
+    );
+  }
+  if (user.role !== "manager") return <p className="mb-5 text-sm text-muted">센터 확인 전입니다.</p>;
+
+  async function sign() {
+    setBusy(true);
+    setError(null);
+    try {
+      onSigned(await api<VisitRecord>(`/records/${record.id}/review`, { method: "POST" }));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "연결을 확인하고 다시 눌러 주세요.");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mb-5 flex flex-col gap-2">
+      <Button onClick={sign} disabled={busy}>
+        읽고 확인했습니다 (센터 확인 서명)
+      </Button>
+      {error && <Notice tone="error">{error}</Notice>}
+    </div>
   );
 }

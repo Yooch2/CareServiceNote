@@ -1,4 +1,4 @@
-import type { Category, RecordItem, RecordStatus, RiskTag, Topic } from "./types";
+import type { Category, ConsentKind, RecordItem, RecordStatus, RiskTag, Role, Topic } from "./types";
 
 export const CATEGORY_ORDER: Category[] = ["remark", "observation", "followup"];
 
@@ -57,4 +57,20 @@ const ERROR_MESSAGE: Record<string, string> = {
 
 export function errorMessage(code: string | null): string {
   return (code && ERROR_MESSAGE[code]) || "자동 정리 중 문제가 생겼습니다.";
+}
+
+export const ROLE_LABEL: Record<Role, string> = {
+  manager: "기관 담당자",
+  caregiver: "요양보호사",
+  guardian: "보호자",
+};
+
+export const CONSENT_LABEL: Record<ConsentKind, string> = {
+  health_record: "건강정보 처리",
+  guardian_share: "보호자 공유",
+};
+
+/** 2026-11-27T05:00:00Z → 2026-11-27 (기기 시간대 기준) */
+export function dateOnly(iso: string): string {
+  return new Date(iso).toLocaleDateString("sv-SE");
 }
