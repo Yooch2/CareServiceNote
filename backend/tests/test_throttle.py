@@ -161,23 +161,47 @@ def test_production_settings_refuse_unsafe_values() -> None:
     assert ok.env == "production"
 
 
-def test_account_ceiling_across_ips(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    """여러 IP로 나눠 같은 아이디를 대입하는 경우 IP와 상관없는 아이디별 상한에 걸린다"""
+def test_account_ceiling_across_ips_but_clean_ip_still_gets_in(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """여러 IP로 나눈 대입은 아이디별 상한에 걸리고, 최근 실패가 없는 IP의 진짜 사용자는 들어간다"""
     monkeypatch.setattr(settings, "trust_proxy", True)
     monkeypatch.setattr(settings, "login_max_failures_per_account", 4)
-    for n in range(4):
-        res = client.post(
+    signup(client, login_id="target01")
+    client.post("/auth/logout")
+
+    def attempt(ip: str, password: str) -> int:
+        return client.post(
             "/auth/login",
-            json={"login_id": "target01", "password": "wrong-pass-1"},
+            json={"login_id": "target01", "password": password},
+            headers={"X-Forwarded-For": ip},
+        ).status_code
+
+    for n in range(4):
+        assert attempt(f"203.0.113.{n}", "wrong-pass-1") == 401
+    # 상한에 닿은 뒤: 실패가 있던 IP는 막힌다
+    assert attempt("203.0.113.0", "wrong-pass-1") == 429
+    # 새 IP는 한 번 시도할 수 있지만, 틀리면 그 IP도 실패가 생겨 다음부터 막힌다
+    assert attempt("203.0.113.50", "wrong-pass-1") == 401
+    assert attempt("203.0.113.50", "wrong-pass-1") == 429
+    # 실패한 적 없는 네트워크의 진짜 사용자는 로그인된다
+    assert attempt("198.51.100.7", PASSWORD) == 200
+
+
+def test_invite_failures_only_warn_globally(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr(settings, "trust_proxy", True)
+    monkeypatch.setattr(settings, "invite_failures_alert_per_hour", 2)
+    body = {"password": PASSWORD, "display_name": "x", "invite_code": "ZZZZZ-ZZZZZ"}
+    for n in range(3):
+        res = client.post(
+            "/auth/signup",
+            json={**body, "login_id": f"guess0{n}"},
             headers={"X-Forwarded-For": f"203.0.113.{n}"},
         )
-        assert res.status_code == 401
-    res = client.post(
-        "/auth/login",
-        json={"login_id": "target01", "password": "wrong-pass-1"},
-        headers={"X-Forwarded-For": "203.0.113.99"},
-    )
-    assert res.status_code == 429
+        assert res.status_code == 400  # 다른 IP들은 막히지 않는다
+    assert "possible guessing" in caplog.text
 
 
 def test_ipv6_grouped_by_64() -> None:

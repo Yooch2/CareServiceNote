@@ -10,7 +10,9 @@ config = context.config
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # 앱 로거(csn.*)를 끄지 않는다. 기본값(True)이면 같은 프로세스에서
+    # 마이그레이션한 뒤 앱의 경고 로그가 사라진다.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 import app.models  # noqa: E402, F401  (메타데이터에 테이블 등록)
 from app.config import settings  # noqa: E402
