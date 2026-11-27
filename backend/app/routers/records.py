@@ -12,9 +12,9 @@ from sqlalchemy.orm import Session
 
 from app import audio_store
 from app.config import settings
-from app.confirm import ConfirmError, build_confirmed_items
+from app.confirm import ConfirmError, build_confirmed_items, build_followup_checks
 from app.deps import CurrentUser, DbSession
-from app.models import RecordItem, User, VisitRecord
+from app.models import FollowupCheck, RecordItem, User, VisitRecord
 from app.routers.recipients import get_recipient_or_404
 from app.schemas import ConfirmIn, RecordOut
 
@@ -145,17 +145,49 @@ def confirm_record(
     record = load_own_record(db, record_id, user, for_update=True)
     if record.status not in ("draft_ready", "failed"):
         raise HTTPException(status.HTTP_409_CONFLICT, "지금은 확정할 수 없는 상태입니다")
-    draft_items = (record.draft or {}).get("items", [])
+    draft = record.draft or {}
     try:
-        values = build_confirmed_items(draft_items, body)
+        values = build_confirmed_items(draft.get("items", []), body)
+        checks = build_followup_checks(draft, body)
     except ConfirmError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from None
+    _ensure_open_followups(db, record, [c["followup_item_id"] for c in checks])
 
     old_audio = record.audio_path
     record.items = [RecordItem(**v) for v in values]
+    record.followup_checks = [FollowupCheck(**c) for c in checks]
     record.status = "confirmed"
     record.confirmed_at = datetime.now(UTC)
     record.audio_path = None
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # 다른 기록이 같은 확인 사항을 먼저 확정한 경우 (followup_item_id unique)
+        db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, _ALREADY_CHECKED) from None
     audio_store.delete(old_audio)
     return record
+
+
+_ALREADY_CHECKED = "이미 다른 기록에서 확인된 항목입니다. 새로고침해 주세요"
+
+
+def _ensure_open_followups(db: Session, record: VisitRecord, item_ids: list[uuid.UUID]) -> None:
+    """확인 결과를 남길 항목이 이 수급자의 확정된 '다음 확인' 항목이고 아직 확인 전인지 본다."""
+    if not item_ids:
+        return
+    rows = db.execute(
+        select(RecordItem.id, FollowupCheck.id)
+        .join(VisitRecord, RecordItem.record_id == VisitRecord.id)
+        .outerjoin(FollowupCheck, FollowupCheck.followup_item_id == RecordItem.id)
+        .where(
+            RecordItem.id.in_(item_ids),
+            RecordItem.category == "followup",
+            VisitRecord.status == "confirmed",
+            VisitRecord.recipient_id == record.recipient_id,
+        )
+    ).all()
+    if len(rows) != len(set(item_ids)):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "확인할 수 없는 항목입니다")
+    if any(check_id is not None for _, check_id in rows):
+        raise HTTPException(status.HTTP_409_CONFLICT, _ALREADY_CHECKED)

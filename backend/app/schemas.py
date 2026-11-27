@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 Category = Literal["remark", "observation", "followup"]
 RiskTag = Literal["fall", "medication", "pain"]
@@ -41,6 +41,31 @@ class RecipientOut(BaseModel):
     created_at: datetime
 
 
+class CheckOut(BaseModel):
+    """'다음 확인' 항목이 이후 방문에서 확인된 결과"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    result: str
+    origin: Literal["ai", "ai_edited", "human"]
+    record_id: uuid.UUID
+    visited_on: date
+
+
+class FollowupCheckOut(BaseModel):
+    """이 방문에서 확인한 이전 확인 사항"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    followup_item_id: uuid.UUID
+    followup_content: str
+    followup_record_id: uuid.UUID
+    followup_visited_on: date
+    result: str
+    evidence: str | None
+    origin: Literal["ai", "ai_edited", "human"]
+
+
 class RecordItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -52,6 +77,7 @@ class RecordItemOut(BaseModel):
     risk_tag: RiskTag | None
     origin: Literal["ai", "ai_edited", "human"]
     position: int
+    check: CheckOut | None
 
 
 class RecordOut(BaseModel):
@@ -68,6 +94,7 @@ class RecordOut(BaseModel):
     approximate_times: bool
     draft: dict[str, Any] | None
     items: list[RecordItemOut]
+    followup_checks: list[FollowupCheckOut]
     has_audio: bool
     created_at: datetime
     confirmed_at: datetime | None
@@ -93,6 +120,20 @@ class ConfirmItemIn(BaseModel):
     risk_tag: RiskTag | None = None
 
 
+class FollowupCheckIn(BaseModel):
+    item_id: uuid.UUID
+    result: LongText
+    evidence: str | None = Field(default=None, max_length=1000)
+
+
 class ConfirmIn(BaseModel):
-    items: list[ConfirmItemIn] = Field(min_length=1, max_length=50)
+    items: list[ConfirmItemIn] = Field(default_factory=list, max_length=50)
     dismissed_draft_indexes: list[int] = Field(default_factory=list)
+    followup_checks: list[FollowupCheckIn] = Field(default_factory=list, max_length=20)
+    dismissed_followup_items: list[uuid.UUID] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def _not_empty(self) -> "ConfirmIn":
+        if not self.items and not self.followup_checks:
+            raise ValueError("남길 항목이나 확인 결과가 하나 이상 있어야 합니다")
+        return self

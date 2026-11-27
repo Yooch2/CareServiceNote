@@ -131,6 +131,11 @@ class RecordItem(Base):
     check: Mapped["FollowupCheck | None"] = relationship(
         foreign_keys="FollowupCheck.followup_item_id", lazy="selectin", viewonly=True
     )
+    record: Mapped["VisitRecord"] = relationship(lazy="select", viewonly=True)
+
+    @property
+    def record_visited_on(self) -> date:
+        return self.record.visited_on
 
 
 class FollowupCheck(Base):
@@ -159,6 +164,23 @@ class FollowupCheck(Base):
     followup_item: Mapped[RecordItem] = relationship(
         foreign_keys=[followup_item_id], lazy="joined", viewonly=True
     )
+
+    @property
+    def visited_on(self) -> date:
+        return self.record.visited_on
+
+    @property
+    def followup_content(self) -> str:
+        return self.followup_item.content
+
+    @property
+    def followup_record_id(self) -> uuid.UUID:
+        return self.followup_item.record_id
+
+    @property
+    def followup_visited_on(self) -> date:
+        # ponytail: 항목에는 방문일이 없어 기록을 한 번 더 읽는다. 목록이 커지면 조인으로 바꾼다.
+        return self.followup_item.record_visited_on
 
 
 class HandoverSummary(Base):

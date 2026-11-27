@@ -39,3 +39,33 @@ def build_confirmed_items(
             }
         )
     return result
+
+
+def build_followup_checks(draft: dict[str, Any], body: ConfirmIn) -> list[dict[str, Any]]:
+    """AI가 제안한 확인 결과를 모두 채택 또는 삭제했는지 확인하고, 저장할 값을 만든다."""
+    suggestions = {r["item_id"]: r for r in draft.get("followup_results", [])}
+    given = [str(c.item_id) for c in body.followup_checks]
+    dismissed = [str(i) for i in body.dismissed_followup_items]
+    if len(set(given) | set(dismissed)) != len(given) + len(dismissed):
+        raise ConfirmError("같은 확인 사항이 두 번 들어 있습니다")
+    if set(dismissed) - set(suggestions):
+        raise ConfirmError("AI가 제안하지 않은 확인 결과는 삭제할 수 없습니다")
+    if set(suggestions) - set(given) - set(dismissed):
+        raise ConfirmError("AI가 제안한 확인 결과를 모두 확인하거나 삭제해야 확정할 수 있습니다")
+
+    result: list[dict[str, Any]] = []
+    for check in body.followup_checks:
+        suggestion = suggestions.get(str(check.item_id))
+        if suggestion is None:
+            origin = "human"
+        else:
+            origin = "ai" if suggestion.get("result") == check.result else "ai_edited"
+        result.append(
+            {
+                "followup_item_id": check.item_id,
+                "result": check.result,
+                "evidence": check.evidence,
+                "origin": origin,
+            }
+        )
+    return result
