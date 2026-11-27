@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { CATEGORY_LABEL, CATEGORY_ORDER, ORIGIN_LABEL, RISK_LABEL } from "@/lib/labels";
+import { BODY_PART_LABEL, CATEGORY_LABEL, CATEGORY_ORDER, MEAL_LABEL, MOOD_LABEL, ORIGIN_LABEL, RISK_LABEL } from "@/lib/labels";
 import type { VisitRecord } from "@/lib/types";
 import { CategoryHeading, TabbedSheet } from "./category";
 import { Badge } from "./ui";
@@ -8,6 +8,22 @@ import { Badge } from "./ui";
 export function ConfirmedView({ record }: { record: VisitRecord }) {
   return (
     <div className="flex flex-col gap-6">
+      {(record.meal_level !== null || record.mood !== null) && (
+        <p className="flex flex-wrap gap-x-4 gap-y-1" aria-label="오늘 상태">
+          {record.meal_level !== null && (
+            <span>
+              <span className="text-muted">식사량 </span>
+              <strong>{MEAL_LABEL[record.meal_level]}</strong>
+            </span>
+          )}
+          {record.mood !== null && (
+            <span>
+              <span className="text-muted">기분 </span>
+              <strong>{MOOD_LABEL[record.mood]}</strong>
+            </span>
+          )}
+        </p>
+      )}
       {record.followup_checks.length > 0 && (
         <section aria-label="확인한 이전 사항">
           <h2 className="mb-2 text-lg font-bold">확인한 이전 사항</h2>
@@ -52,6 +68,7 @@ export function ConfirmedView({ record }: { record: VisitRecord }) {
                     )}
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {item.risk_tag && <Badge tone="risk">{RISK_LABEL[item.risk_tag]} 주의</Badge>}
+                      {item.body_part && <Badge>{BODY_PART_LABEL[item.body_part]} 불편</Badge>}
                       <Badge>{ORIGIN_LABEL[item.origin]}</Badge>
                     </div>
                     {item.category === "followup" &&

@@ -1,4 +1,4 @@
-import type { Category, ConsentKind, RecordItem, RecordStatus, RiskTag, Role, Topic } from "./types";
+import type { AlertKind, BodyPart, Category, ConsentKind, Mood, RecordItem, RecordStatus, RiskTag, Role, Topic } from "./types";
 
 export const CATEGORY_ORDER: Category[] = ["remark", "observation", "followup"];
 
@@ -73,4 +73,32 @@ export const CONSENT_LABEL: Record<ConsentKind, string> = {
 /** 2026-11-27T05:00:00Z → 2026-11-27 (기기 시간대 기준) */
 export function dateOnly(iso: string): string {
   return new Date(iso).toLocaleDateString("sv-SE");
+}
+
+export const BODY_PART_LABEL: Record<BodyPart, string> = {
+  head: "머리",
+  neck: "목",
+  shoulder: "어깨",
+  arm: "팔",
+  hand: "손",
+  chest: "가슴",
+  abdomen: "배",
+  back: "허리·등",
+  hip: "엉덩이·골반",
+  leg: "다리",
+  knee: "무릎",
+  foot: "발",
+};
+export const BODY_PARTS = Object.keys(BODY_PART_LABEL) as BodyPart[];
+
+/** 식사량 0~4 */
+export const MEAL_LABEL = ["거의 못 드심", "조금", "절반", "대부분", "다 드심"];
+
+export const MOOD_LABEL: Record<Mood, string> = { good: "좋음", neutral: "보통", low: "처짐" };
+export const MOODS: Mood[] = ["good", "neutral", "low"];
+
+export function alertTitle(kind: AlertKind, key: string): string {
+  if (kind === "repeated_discomfort") return `${BODY_PART_LABEL[key as BodyPart] ?? key} 불편 반복`;
+  if (kind === "meal_drop") return "식사량 감소";
+  return "긴급 우려";
 }

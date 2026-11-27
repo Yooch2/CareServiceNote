@@ -1,5 +1,19 @@
 export type Category = "remark" | "observation" | "followup";
 export type RiskTag = "fall" | "medication" | "pain";
+export type BodyPart =
+  | "head"
+  | "neck"
+  | "shoulder"
+  | "arm"
+  | "hand"
+  | "chest"
+  | "abdomen"
+  | "back"
+  | "hip"
+  | "leg"
+  | "knee"
+  | "foot";
+export type Mood = "good" | "neutral" | "low";
 export type Topic = "meal" | "toileting" | "sleep" | "mood";
 export type RecordStatus =
   | "queued"
@@ -42,6 +56,14 @@ export interface DraftItem {
   segment_index: number | null;
   speaker_uncertain: boolean;
   risk_tag: RiskTag | null;
+  body_part?: BodyPart | null; // 3단계까지의 초안에는 없다
+}
+
+export interface DraftState {
+  meal_level: number | null;
+  meal_evidence: string | null;
+  mood: Mood | null;
+  mood_evidence: string | null;
 }
 
 export interface OpenFollowupDraft {
@@ -64,6 +86,7 @@ export interface Draft {
   // 1단계에서 만들어진 초안에는 없다
   open_followups?: OpenFollowupDraft[];
   followup_results?: FollowupResultDraft[];
+  state?: DraftState;
 }
 
 export type Origin = "ai" | "ai_edited" | "human";
@@ -92,6 +115,7 @@ export interface RecordItem {
   evidence: string | null;
   speaker_uncertain: boolean;
   risk_tag: RiskTag | null;
+  body_part: BodyPart | null;
   origin: Origin;
   position: number;
   check: Check | null;
@@ -113,6 +137,8 @@ export interface VisitRecord {
   has_audio: boolean;
   created_at: string;
   confirmed_at: string | null;
+  meal_level: number | null;
+  mood: Mood | null;
   review: { reviewer_name: string; reviewed_at: string } | null;
 }
 
@@ -131,6 +157,7 @@ export interface ConfirmItem {
   evidence: string | null;
   speaker_uncertain: boolean;
   risk_tag: RiskTag | null;
+  body_part: BodyPart | null;
 }
 
 export interface ConfirmBody {
@@ -138,6 +165,8 @@ export interface ConfirmBody {
   dismissed_draft_indexes: number[];
   followup_checks: { item_id: string; result: string; evidence: string | null }[];
   dismissed_followup_items: string[];
+  meal_level: number | null;
+  mood: Mood | null;
 }
 
 export type Days = 7 | 14 | 30;
@@ -267,4 +296,36 @@ export interface GuardianHome {
     items: { category: Category; content: string }[];
     checks: { followup_content: string; result: string }[];
   }[];
+}
+
+// --- 4단계: 알림 · 추이 ---
+
+export type AlertKind = "repeated_discomfort" | "meal_drop" | "urgent";
+
+export interface Alert {
+  id: string;
+  recipient_id: string;
+  kind: AlertKind;
+  key: string;
+  status: "open" | "resolved";
+  evidence: { record_id: string; item_id: string | null; visited_on: string; text: string }[];
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+  resolution: "acted" | "false_alarm" | null;
+  resolution_note: string | null;
+  resolved_at: string | null;
+}
+
+export interface OrgAlert extends Alert {
+  recipient_name: string;
+  created_by_name: string | null;
+  resolved_by_name: string | null;
+}
+
+export interface TrendPoint {
+  record_id: string;
+  visited_on: string;
+  meal_level: number | null;
+  mood: Mood | null;
 }

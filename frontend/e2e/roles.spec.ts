@@ -43,8 +43,11 @@ test("센터 만들기 → 동의·초대·배정 → 요양보호사 기록 →
   // 동의 두 가지 기록, 보호자 초대(말씀만)
   await manager.getByRole("link", { name: recipient }).click();
   await manager.getByRole("link", { name: /담당 배정 · 동의 · 보호자 관리/ }).click();
-  for (let i = 0; i < 2; i++) await manager.getByRole("button", { name: "동의 기록" }).first().click();
-  await expect(manager.getByText(/받음$/)).toHaveCount(2);
+  // 하나 기록하고 목록이 다시 그려진 뒤 다음 것을 누른다
+  for (let i = 1; i <= 2; i++) {
+    await manager.getByRole("button", { name: "동의 기록" }).first().click();
+    await expect(manager.getByText(/받음$/)).toHaveCount(i);
+  }
   await manager.getByRole("button", { name: "보호자 초대 코드 만들기" }).click();
   const guardianCode = await readCode(manager);
 
