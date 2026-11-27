@@ -1,5 +1,6 @@
 """8단계: 로그인·초대 코드 시도 횟수 제한, 운영 설정 확인"""
 
+import threading
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -9,9 +10,10 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.config import Settings, settings
+from app.main import app
 from app.models import AuthFailure
 from app.retention import purge
-from tests.helpers import PASSWORD, signup
+from tests.helpers import PASSWORD, signup, signup_center
 
 
 def _login(client: TestClient, login_id: str, password: str) -> int:
@@ -32,9 +34,10 @@ def test_login_locks_after_failures_and_unlocks_after_window(
     # 시간이 지나면 다시 된다
     db.execute(update(AuthFailure).values(created_at=datetime.now(UTC) - timedelta(minutes=16)))
     db.commit()
+    before = db.scalar(select(func.count()).select_from(AuthFailure))
     assert _login(client, "carer01", PASSWORD) == 200
-    # 성공하면 실패 기록을 지운다
-    assert db.scalar(select(func.count()).select_from(AuthFailure)) == 0
+    # 성공한 시도는 미리 남긴 기록(아이디+IP, IP 두 줄)을 지우고, 지난 실패는 기간이 지나면 사라진다
+    assert db.scalar(select(func.count()).select_from(AuthFailure)) == before
 
 
 def test_unknown_login_is_throttled_the_same_way(client: TestClient) -> None:
@@ -45,14 +48,83 @@ def test_unknown_login_is_throttled_the_same_way(client: TestClient) -> None:
     assert _login(client, "someone2", "whatever-1") == 401  # 다른 아이디는 영향 없음
 
 
-def test_invite_failures_are_capped(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "invite_max_failures_per_hour", 3)
-    body = {"password": PASSWORD, "display_name": "x", "invite_code": "ZZZZZ-ZZZZZ"}
-    for n in range(3):
-        res = client.post("/auth/signup", json={**body, "login_id": f"guess0{n}"})
-        assert res.status_code == 400
-    res = client.post("/auth/signup", json={**body, "login_id": "guess09"})
+def test_lock_is_per_client_ip_behind_proxy(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """다른 네트워크에서 남의 아이디로 실패를 쌓아도 그 사람은 막히지 않는다"""
+    monkeypatch.setattr(settings, "trust_proxy", True)
+    signup(client)
+    client.post("/auth/logout")
+    attacker = {"X-Forwarded-For": "203.0.113.9"}
+    for _ in range(settings.login_max_failures):
+        res = client.post(
+            "/auth/login",
+            json={"login_id": "carer01", "password": "wrong-pass-1"},
+            headers=attacker,
+        )
+        assert res.status_code == 401
+    blocked = client.post(
+        "/auth/login", json={"login_id": "carer01", "password": PASSWORD}, headers=attacker
+    )
+    assert blocked.status_code == 429
+    owner = client.post(
+        "/auth/login",
+        json={"login_id": "carer01", "password": PASSWORD},
+        headers={"X-Forwarded-For": "198.51.100.7"},
+    )
+    assert owner.status_code == 200
+
+
+def test_forwarded_header_ignored_without_trust_proxy(client: TestClient) -> None:
+    """프록시 뒤가 아닐 때(개발) 클라이언트가 보낸 X-Forwarded-For로 제한을 피할 수 없다"""
+    for n in range(settings.login_max_failures):
+        client.post(
+            "/auth/login",
+            json={"login_id": "victim01", "password": "x" * 8},
+            headers={"X-Forwarded-For": f"10.0.0.{n}"},
+        )
+    res = client.post("/auth/login", json={"login_id": "victim01", "password": "x" * 8})
     assert res.status_code == 429
+
+
+def test_invite_failures_are_capped_per_ip(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "invite_max_failures_per_hour", 3)
+    monkeypatch.setattr(settings, "trust_proxy", True)
+    body = {"password": PASSWORD, "display_name": "x", "invite_code": "ZZZZZ-ZZZZZ"}
+    guesser = {"X-Forwarded-For": "203.0.113.9"}
+    for n in range(3):
+        res = client.post("/auth/signup", json={**body, "login_id": f"guess0{n}"}, headers=guesser)
+        assert res.status_code == 400
+    res = client.post("/auth/signup", json={**body, "login_id": "guess09"}, headers=guesser)
+    assert res.status_code == 429
+    # 다른 사람은 올바른 코드로 가입할 수 있다 (전체를 막지 않음)
+    signup_center(client, login_id="boss01")
+    code = client.post("/org/invites", json={"role": "caregiver"}).json()["code"]
+    other = TestClient(app)
+    ok = other.post(
+        "/auth/signup",
+        json={**body, "login_id": "newbie01", "invite_code": code},
+        headers={"X-Forwarded-For": "198.51.100.7"},
+    )
+    assert ok.status_code == 201
+
+
+def test_concurrent_failures_cannot_exceed_limit(client: TestClient) -> None:
+    """확인과 기록을 한 잠금 안에서 하므로 동시에 보내도 한도를 넘지 못한다"""
+    results: list[int] = []
+
+    def attempt() -> None:
+        results.append(_login(TestClient(app), "racer01", "wrong-pass-1"))
+
+    threads = [threading.Thread(target=attempt) for _ in range(12)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert results.count(401) == settings.login_max_failures
+    assert results.count(429) == 12 - settings.login_max_failures
 
 
 def test_purge_removes_old_failures(db: Session) -> None:

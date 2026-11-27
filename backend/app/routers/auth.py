@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -34,7 +34,6 @@ def _set_session(response: Response, user: User) -> None:
 
 def _claim_invite(db: Session, code: str) -> Invite:
     """쓸 수 있는 초대를 잠근다. 같은 코드로 동시에 가입하면 한 명만 통과한다."""
-    throttle.check_invite(db)
     invite = db.scalar(
         select(Invite)
         .where(
@@ -45,15 +44,18 @@ def _claim_invite(db: Session, code: str) -> Invite:
         .with_for_update()
     )
     if invite is None:
-        db.rollback()
-        throttle.invite_failed(db)
         raise HTTPException(status.HTTP_400_BAD_REQUEST, _BAD_INVITE)
     return invite
 
 
 @router.post("/signup", status_code=status.HTTP_201_CREATED, response_model=UserOut)
-def signup(body: SignupIn, db: DbSession, response: Response) -> User:
+def signup(body: SignupIn, db: DbSession, request: Request, response: Response) -> User:
     """센터를 만들면 기관 담당자, 초대 코드로 가입하면 초대에 적힌 역할이 된다."""
+    attempt = (
+        throttle.reserve_invite(db, throttle.client_ip(request))
+        if body.invite_code is not None
+        else []
+    )
     user = User(
         login_id=body.login_id,
         password_hash=hash_password(body.password),
@@ -71,7 +73,11 @@ def signup(body: SignupIn, db: DbSession, response: Response) -> User:
         db.commit()
     except IntegrityError:
         db.rollback()  # 초대 코드도 쓰지 않은 상태로 돌아간다
+        throttle.release(db, attempt)  # 코드는 맞았으므로 대입 시도로 세지 않는다
+        db.commit()
         raise HTTPException(status.HTTP_409_CONFLICT, "이미 사용 중인 아이디입니다") from None
+    throttle.release(db, attempt)
+    db.commit()
     _set_session(response, user)
     return user
 
@@ -94,14 +100,13 @@ def _join_by_invite(db: Session, user: User, code: str) -> None:
 
 
 @router.post("/login", response_model=UserOut)
-def login(body: LoginIn, db: DbSession, response: Response) -> User:
-    throttle.check_login(db, body.login_id)
+def login(body: LoginIn, db: DbSession, request: Request, response: Response) -> User:
+    attempt = throttle.reserve_login(db, body.login_id, throttle.client_ip(request))
     user = db.scalar(select(User).where(User.login_id == body.login_id))
     ok = verify_password(user.password_hash if user else None, body.password)
     if not ok or user is None or not user.active:
-        throttle.login_failed(db, body.login_id)
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, _BAD_LOGIN)
-    throttle.login_succeeded(db, body.login_id)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, _BAD_LOGIN)  # 미리 기록한 실패가 남는다
+    throttle.release(db, attempt)
     db.commit()
     _set_session(response, user)
     return user
