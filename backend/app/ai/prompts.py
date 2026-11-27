@@ -32,3 +32,67 @@ def classify_user_message(text: str, followups: Sequence[OpenFollowup] = ()) -> 
         lines = "\n".join(f"{f.ref}. {f.content} ({f.visited_on.isoformat()})" for f in followups)
         message += f"\n\n이전 방문에서 확인하기로 한 사항:\n{lines}"
     return message
+
+
+# 작은 로컬 모델용 예시 한 쌍. 평가 시나리오와 겹치지 않는 가상 기록이다.
+# 한 문장에 든 두 주제를 나누고, 언급 없는 기분은 null로 두는 모습을 보여 준다.
+CLASSIFY_EXAMPLE_TRANSCRIPT = (
+    "어르신이 어젯밤에 손목이 시큰거려서 잠을 설쳤다고 하셨어요. "
+    "아침 감기약은 제가 보는 앞에서 드셨고 국은 절반쯤 남기셨어요. "
+    "다음 주에 아드님이 반찬을 가져오신다고 하셨어요. 다음에 손목 괜찮아졌는지 여쭤볼게요."
+)
+CLASSIFY_EXAMPLE_ANSWER = {
+    "items": [
+        {
+            "category": "remark",
+            "content": "어젯밤 손목이 시큰거려 잠을 설쳤다고 하심",
+            "evidence": "손목이 시큰거려서 잠을 설쳤다고 하셨어요",
+            "speaker_uncertain": False,
+            "risk_tag": "pain",
+            "body_part": "hand",
+        },
+        {
+            "category": "observation",
+            "content": "아침 감기약을 보는 앞에서 드심",
+            "evidence": "아침 감기약은 제가 보는 앞에서 드셨고",
+            "speaker_uncertain": False,
+            "risk_tag": "medication",
+            "body_part": None,
+        },
+        {
+            "category": "observation",
+            "content": "국을 절반쯤 남기심",
+            "evidence": "국은 절반쯤 남기셨어요",
+            "speaker_uncertain": False,
+            "risk_tag": None,
+            "body_part": None,
+        },
+        {
+            "category": "remark",
+            "content": "다음 주에 아드님이 반찬을 가져온다고 하심",
+            "evidence": "다음 주에 아드님이 반찬을 가져오신다고 하셨어요",
+            "speaker_uncertain": False,
+            "risk_tag": None,
+            "body_part": None,
+        },
+        {
+            "category": "followup",
+            "content": "손목 상태 다시 여쭤보기",
+            "evidence": "다음에 손목 괜찮아졌는지 여쭤볼게요",
+            "speaker_uncertain": False,
+            "risk_tag": None,
+            "body_part": None,
+        },
+    ],
+    "mentioned_topics": [
+        {"topic": "sleep", "evidence": "잠을 설쳤다고 하셨어요"},
+        {"topic": "meal", "evidence": "국은 절반쯤 남기셨어요"},
+    ],
+    "followup_results": [],
+    "state": {
+        "meal_level": 2,
+        "meal_evidence": "국은 절반쯤 남기셨어요",
+        "mood": None,
+        "mood_evidence": None,
+    },
+}
