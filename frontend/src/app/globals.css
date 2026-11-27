@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
-/* 돌봄수첩 토큰: 종이(바탕) · 잉크(글자) · 소나무(행동) · 색인 탭 3색 · 빨간 펜(위험) · 형광펜(근거) */
+/* 색은 WCAG AA 대비(보통 글자 4.5:1)를 흰 바탕·옅은 색 바탕 모두에서 넘도록 맞췄다 (e2e/a11y.spec.ts)
+   돌봄수첩 토큰: 종이(바탕) · 잉크(글자) · 소나무(행동) · 색인 탭 3색 · 빨간 펜(위험) · 형광펜(근거) */
 @theme {
   --color-paper: #f3f6f4;
   --color-sheet: #ffffff;
@@ -9,10 +10,10 @@
   --color-muted: #5c6b70;
   --color-pine: #2f5d50;
   --color-pine-dark: #244a40;
-  --color-remark: #3a6ea5;
-  --color-observe: #4e8a5b;
-  --color-follow: #a8730f;
-  --color-risk: #b4413c;
+  --color-remark: #37689d;
+  --color-observe: #40714b;
+  --color-follow: #885d0c;
+  --color-risk: #b0403b;
   --color-marker: #fbe7a1;
   --font-sans: var(--font-plex), "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
 }
