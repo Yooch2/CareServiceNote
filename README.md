@@ -57,7 +57,7 @@ pnpm dev
 |---|---|---|---|
 | `fake` | 고정 가상 전사문 | 고정 분류 결과 | 없음 (기본값) |
 | `local` | mlx-whisper | Ollama | macOS, `uv sync --group local`, `ollama pull qwen2.5:7b` |
-| `gemini` | Gemini | Gemini | Google AI Studio 무료 등급 키를 `GEMINI_API_KEY`에 |
+| `gemini` | Gemini | Gemini | Google AI Studio 무료 등급 키를 `GEMINI_API_KEY`에 (기본 모델 `gemini-3.5-flash-lite`, 무료 등급에서 음성 입력 지원) |
 
 ## 테스트
 

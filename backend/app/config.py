@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     ollama_model: str = "qwen2.5:7b"
     ollama_num_ctx: int = 8192
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.5-flash-lite"
 
 
 settings = Settings()  # pyright: ignore[reportCallIssue]  # jwt_secret은 환경변수에서 읽음
