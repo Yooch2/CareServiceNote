@@ -1,12 +1,14 @@
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 import httpx
+from pydantic import BaseModel
 
 from app.ai.errors import PermanentAIError, TransientAIError
 from app.ai.prompts import CLASSIFY_SYSTEM, classify_user_message
 from app.ai.structured import parse_with_retry
-from app.ai.types import Classification, Segment, Transcript
+from app.ai.types import Classification, OpenFollowup, Segment, Transcript
 
 
 class LocalTranscriber:
@@ -44,21 +46,27 @@ class OllamaClassifier:
         self.num_ctx = num_ctx
         self._client = client or httpx.Client(timeout=120)
 
-    def classify(self, transcript: Transcript) -> Classification:
-        return parse_with_retry(lambda: self._request(transcript.text), Classification)
+    def classify(
+        self, transcript: Transcript, followups: Sequence[OpenFollowup] = ()
+    ) -> Classification:
+        user = classify_user_message(transcript.text, followups)
+        return self.generate(CLASSIFY_SYSTEM, user, Classification)
 
-    def _request(self, text: str) -> str:
+    def generate[T: BaseModel](self, system: str, user: str, schema: type[T]) -> T:
+        return parse_with_retry(lambda: self._request(system, user, schema), schema)
+
+    def _request(self, system: str, user: str, schema: type[BaseModel]) -> str:
         try:
             res = self._client.post(
                 f"{self.url}/api/chat",
                 json={
                     "model": self.model,
                     "stream": False,
-                    "format": Classification.model_json_schema(),
+                    "format": schema.model_json_schema(),
                     "options": {"num_ctx": self.num_ctx, "temperature": 0},
                     "messages": [
-                        {"role": "system", "content": CLASSIFY_SYSTEM},
-                        {"role": "user", "content": classify_user_message(text)},
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
                     ],
                 },
             )

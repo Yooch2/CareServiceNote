@@ -1,3 +1,4 @@
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -6,6 +7,7 @@ from app.ai.errors import TransientAIError
 from app.ai.factory import build_ai
 from app.ai.fake import FAKE_CLASSIFICATION, FAKE_TRANSCRIPT, FakeClassifier, FakeTranscriber
 from app.ai.postprocess import build_draft
+from app.ai.types import OpenFollowup
 
 
 def test_fake_data_is_self_consistent() -> None:
@@ -30,3 +32,15 @@ def test_factory_returns_fake_in_tests() -> None:
     transcriber, classifier = build_ai()
     assert isinstance(transcriber, FakeTranscriber)
     assert isinstance(classifier, FakeClassifier)
+
+
+def test_fake_answers_first_previous_followup() -> None:
+    classifier = FakeClassifier()
+    followups = [
+        OpenFollowup("F1", "무릎 상태 확인", date(2026, 11, 20)),
+        OpenFollowup("F2", "산책 의향 확인", date(2026, 11, 20)),
+    ]
+    result = classifier.classify(FAKE_TRANSCRIPT, followups)
+    assert [r.ref for r in result.followup_results] == ["F1"]
+    assert result.followup_results[0].evidence in FAKE_TRANSCRIPT.text
+    assert classifier.last_followups == followups

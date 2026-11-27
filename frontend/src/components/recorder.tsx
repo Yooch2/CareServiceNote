@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { MAX_AUDIO_BYTES, uploadOrQueue } from "@/lib/upload";
 import { QUEUE_CHANGED } from "./app-shell";
@@ -22,6 +22,27 @@ export function Recorder() {
   const [fileKey, setFileKey] = useState(0); // 바꾸면 파일 선택 칸이 비워진다
   const [message, setMessage] = useState<{ tone: "info" | "error"; text: string } | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
+
+  // Next 16은 떠난 화면을 숨긴 채 상태를 유지한다(Activity). 녹음 화면은 다시 올 때마다 새로 시작하고,
+  // 녹음 중에 떠나면 마이크를 끈다.
+  useLayoutEffect(
+    () => () => {
+      const rec = recorderRef.current;
+      if (rec && rec.state !== "inactive") {
+        rec.onstop = null;
+        rec.stop();
+        rec.stream.getTracks().forEach((t) => t.stop());
+      }
+      recorderRef.current = null;
+      setRecording(false);
+      setConsent(false);
+      setAudio(null);
+      setBusy(false);
+      setMessage(null);
+      setFileKey((k) => k + 1);
+    },
+    [],
+  );
 
   const previewUrl = useMemo(() => (audio ? URL.createObjectURL(audio) : null), [audio]);
   useEffect(

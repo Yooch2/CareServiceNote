@@ -10,7 +10,7 @@ from app.ai.fake import FakeClassifier, FakeTranscriber
 from app.ai.types import Classifier, Transcriber
 from app.config import settings
 from app.db import SessionLocal
-from app.models import Recipient, User, VisitRecord
+from app.models import Recipient, RecordItem, User, VisitRecord
 
 
 def signup(
@@ -68,10 +68,15 @@ def make_record(
     status: str = "queued",
     transcript: str | None = None,
     with_audio: bool = True,
+    recipient_id: uuid.UUID | None = None,
 ) -> VisitRecord:
     user = User(login_id=f"w{uuid.uuid4().hex[:8]}", password_hash="x", display_name="워커테스트")
-    recipient = Recipient(name="가상수급자")
-    db.add_all([user, recipient])
+    db.add(user)
+    if recipient_id is None:
+        recipient = Recipient(name="가상수급자")
+        db.add(recipient)
+        db.flush()
+        recipient_id = recipient.id
     db.flush()
     record_id = uuid.uuid4()
     audio_path = None
@@ -82,7 +87,7 @@ def make_record(
         audio_path = str(path)
     record = VisitRecord(
         id=record_id,
-        recipient_id=recipient.id,
+        recipient_id=recipient_id,
         caregiver_id=user.id,
         visited_on=date(2026, 11, 27),
         recorded_at=datetime(2026, 11, 27, 1, 0, tzinfo=UTC),
@@ -104,3 +109,53 @@ def process_all(
     c = classifier or FakeClassifier()
     while worker.run_once(SessionLocal, t, c, lambda: far_future):
         pass
+
+
+def make_confirmed(
+    db: Session,
+    items: list[tuple[str, str]],
+    *,
+    recipient_id: uuid.UUID | None = None,
+    caregiver_id: uuid.UUID | None = None,
+    visited_on: date = date(2026, 11, 20),
+    transcript: str | None = None,
+    confirmed_at: datetime | None = None,
+    risk: dict[int, str] | None = None,
+) -> VisitRecord:
+    """확정된 방문 기록을 바로 만든다. items는 (분류, 내용) 목록, risk는 {순번: 위험 태그}."""
+    if recipient_id is None:
+        recipient = Recipient(name="가상수급자")
+        db.add(recipient)
+        db.flush()
+        recipient_id = recipient.id
+    if caregiver_id is None:
+        user = User(
+            login_id=f"c{uuid.uuid4().hex[:8]}", password_hash="x", display_name="확정테스트"
+        )
+        db.add(user)
+        db.flush()
+        caregiver_id = user.id
+    record = VisitRecord(
+        id=uuid.uuid4(),
+        recipient_id=recipient_id,
+        caregiver_id=caregiver_id,
+        visited_on=visited_on,
+        recorded_at=datetime.combine(visited_on, datetime.min.time(), UTC),
+        status="confirmed",
+        transcript=transcript,
+        confirmed_at=confirmed_at or datetime.now(UTC),
+        items=[
+            RecordItem(
+                category=category,
+                content=content,
+                evidence=content,
+                origin="ai",
+                position=i,
+                risk_tag=(risk or {}).get(i),
+            )
+            for i, (category, content) in enumerate(items)
+        ],
+    )
+    db.add(record)
+    db.commit()
+    return record

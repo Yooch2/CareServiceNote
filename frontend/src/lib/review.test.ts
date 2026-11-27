@@ -3,14 +3,19 @@ import { test } from "node:test";
 
 import {
   accept,
+  acceptFollowup,
   addHuman,
   buildConfirmBody,
   canConfirm,
   cardsFromDraft,
   dismiss,
+  dismissFollowup,
   edit,
+  followupCardsFromDraft,
   remaining,
   restore,
+  restoreFollowup,
+  writeFollowup,
 } from "./review.ts";
 import type { Draft } from "./types";
 
@@ -109,9 +114,84 @@ test("확정 요청 본문: 채택 항목과 삭제한 초안 번호", () => {
       },
     ],
     dismissed_draft_indexes: [1],
+    followup_checks: [],
+    dismissed_followup_items: [],
   });
 });
 
 test("확인하지 않은 항목이 있으면 본문을 만들지 않는다", () => {
   assert.throws(() => buildConfirmBody(cardsFromDraft(draft)));
+});
+
+const withFollowups: Draft = {
+  items: [],
+  missing_topics: [],
+  open_followups: [
+    { item_id: "f1", content: "무릎 상태 확인", visited_on: "2026-11-20" },
+    { item_id: "f2", content: "산책 의향 확인", visited_on: "2026-11-20" },
+  ],
+  followup_results: [
+    { item_id: "f1", result: "아직 불편하다고 하심", evidence: "무릎이 불편", evidence_found: true, segment_index: 0 },
+  ],
+};
+
+test("1단계 초안에는 이전 확인 사항이 없다", () => {
+  assert.deepEqual(followupCardsFromDraft(draft), []);
+  assert.deepEqual(followupCardsFromDraft(null), []);
+});
+
+test("AI 제안이 있는 확인 사항만 확인 필요로 센다", () => {
+  const fcards = followupCardsFromDraft(withFollowups);
+  assert.deepEqual(
+    fcards.map((f) => [f.itemId, f.state, f.result]),
+    [
+      ["f1", "pending", "아직 불편하다고 하심"],
+      ["f2", "open", ""],
+    ],
+  );
+  assert.equal(remaining([], fcards), 1);
+  assert.equal(canConfirm([], fcards), false);
+});
+
+test("제안을 확인하면 결과만 있어도 확정할 수 있다", () => {
+  let fcards = followupCardsFromDraft(withFollowups);
+  fcards = acceptFollowup(fcards, "f1");
+  assert.equal(remaining([], fcards), 0);
+  assert.equal(canConfirm([], fcards), true);
+  assert.deepEqual(buildConfirmBody([], fcards), {
+    items: [],
+    dismissed_draft_indexes: [],
+    followup_checks: [{ item_id: "f1", result: "아직 불편하다고 하심", evidence: "무릎이 불편" }],
+    dismissed_followup_items: [],
+  });
+});
+
+test("제안을 삭제하면 삭제 목록에, 제안 없는 사항은 직접 쓰면 결과로", () => {
+  let fcards = followupCardsFromDraft(withFollowups);
+  fcards = dismissFollowup(fcards, "f1");
+  assert.equal(canConfirm([], fcards), false); // 남길 것이 없음
+  fcards = writeFollowup(fcards, "f2", "  오늘은 집에서 쉬고 싶다고 하심 ");
+  assert.equal(fcards[1].state, "accepted");
+  assert.deepEqual(buildConfirmBody([], fcards), {
+    items: [],
+    dismissed_draft_indexes: [],
+    followup_checks: [{ item_id: "f2", result: "오늘은 집에서 쉬고 싶다고 하심", evidence: null }],
+    dismissed_followup_items: ["f1"],
+  });
+  // 되돌리면 제안 있는 사항은 확인 필요, 없는 사항은 미입력으로
+  fcards = restoreFollowup(restoreFollowup(fcards, "f1"), "f2");
+  assert.deepEqual(
+    fcards.map((f) => [f.state, f.result]),
+    [
+      ["pending", "아직 불편하다고 하심"],
+      ["open", ""],
+    ],
+  );
+});
+
+test("제안을 고쳐 쓰면 근거는 유지하고 확인한 것으로 본다", () => {
+  let fcards = followupCardsFromDraft(withFollowups);
+  fcards = writeFollowup(fcards, "f1", "조금 나아졌다고 하심");
+  assert.deepEqual([fcards[0].state, fcards[0].result, fcards[0].evidence], ["accepted", "조금 나아졌다고 하심", "무릎이 불편"]);
+  assert.equal(writeFollowup(fcards, "f2", "   "), fcards);
 });

@@ -5,7 +5,8 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import Recipient, RecordItem, User, VisitRecord
+from app.models import FollowupCheck, Recipient, RecordItem, User, VisitRecord
+from tests.helpers import make_confirmed
 
 
 def _record(db: Session, **overrides: object) -> VisitRecord:
@@ -67,3 +68,26 @@ def test_item_constraints_and_order(db: Session) -> None:
     )
     with pytest.raises(IntegrityError):
         db.commit()
+
+
+def test_followup_item_is_checked_once_and_cascades(db: Session) -> None:
+    first = make_confirmed(db, [("followup", "무릎 상태 다시 확인")])
+    second = make_confirmed(db, [("remark", "괜찮다")], recipient_id=first.recipient_id)
+    item = first.items[0]
+    db.add(
+        FollowupCheck(followup_item_id=item.id, record_id=second.id, result="괜찮다", origin="ai")
+    )
+    db.commit()
+    db.expire_all()
+    assert item.check is not None and item.check.result == "괜찮다"
+    assert item.check.record.visited_on == second.visited_on
+
+    dup = FollowupCheck(followup_item_id=item.id, record_id=second.id, result="중복", origin="ai")
+    db.add(dup)
+    with pytest.raises(IntegrityError):
+        db.commit()
+    db.rollback()
+
+    db.delete(db.get(VisitRecord, second.id))
+    db.commit()
+    assert db.query(FollowupCheck).count() == 0

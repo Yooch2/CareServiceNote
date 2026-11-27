@@ -4,18 +4,24 @@ import { ApiError, postJson } from "@/lib/api";
 import { CATEGORY_LABEL, CATEGORY_ORDER, errorMessage, RISK_LABEL, TOPIC_LABEL } from "@/lib/labels";
 import {
   accept,
+  acceptFollowup,
   addHuman,
   buildConfirmBody,
   canConfirm,
   cardsFromDraft,
   dismiss,
+  dismissFollowup,
   edit,
+  followupCardsFromDraft,
   remaining,
   restore,
+  restoreFollowup,
+  writeFollowup,
   type Card,
 } from "@/lib/review";
 import type { Category, VisitRecord } from "@/lib/types";
 import { CategoryHeading, TabbedSheet } from "./category";
+import { FollowupReview } from "./followup-review";
 import { Transcript } from "./transcript";
 import { Badge, Button, Notice, Sheet } from "./ui";
 
@@ -30,6 +36,7 @@ export function ReviewPanel({
   onConfirmed: (r: VisitRecord) => void;
 }) {
   const [cards, setCards] = useState(() => cardsFromDraft(record.draft));
+  const [fcards, setFcards] = useState(() => followupCardsFromDraft(record.draft));
   const [active, setActive] = useState<number | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +44,7 @@ export function ReviewPanel({
   const audioRef = useRef<HTMLAudioElement>(null);
   const nextKey = useRef(0);
   const segments = record.transcript_segments ?? [];
-  const left = remaining(cards);
+  const left = remaining(cards, fcards);
   const missing = record.draft?.missing_topics ?? [];
 
   function play(index: number) {
@@ -64,7 +71,7 @@ export function ReviewPanel({
     setBusy(true);
     setError(null);
     try {
-      onConfirmed(await postJson<VisitRecord>(`/records/${record.id}/confirm`, buildConfirmBody(cards)));
+      onConfirmed(await postJson<VisitRecord>(`/records/${record.id}/confirm`, buildConfirmBody(cards, fcards)));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "확정하지 못했습니다. 연결을 확인하고 다시 눌러 주세요.");
       setBusy(false);
@@ -102,6 +109,15 @@ export function ReviewPanel({
           )}
         </Sheet>
       )}
+
+      <FollowupReview
+        fcards={fcards}
+        onAccept={(id) => setFcards((f) => acceptFollowup(f, id))}
+        onDismiss={(id) => setFcards((f) => dismissFollowup(f, id))}
+        onRestore={(id) => setFcards((f) => restoreFollowup(f, id))}
+        onWrite={(id, text) => setFcards((f) => writeFollowup(f, id, text))}
+        onEvidence={play}
+      />
 
       {CATEGORY_ORDER.map((category) => {
         const group = cards.filter((c) => c.category === category);
@@ -162,7 +178,7 @@ export function ReviewPanel({
           <p aria-live="polite" className={left > 0 ? "font-semibold text-follow" : "text-muted"}>
             {left > 0 ? `확인이 필요한 AI 항목 ${left}개` : "모든 AI 항목을 확인했습니다"}
           </p>
-          <Button onClick={confirm} disabled={!canConfirm(cards) || busy}>
+          <Button onClick={confirm} disabled={!canConfirm(cards, fcards) || busy}>
             확정하기
           </Button>
         </div>
