@@ -74,3 +74,25 @@ def test_previous_followups_are_sent_without_ids() -> None:
     messages = seen["messages"]
     assert isinstance(messages, list)
     assert "F1. 무릎 상태 다시 확인 (2026-11-20)" in messages[1]["content"]
+
+
+def test_runaway_output_fails_fast() -> None:
+    """작은 모델이 같은 항목을 반복하다 길이 한도에 닿으면 재시도 없이 바로 실패한다.
+
+    7단계 평가에서 h-handwash 시나리오가 "null" 항목을 끝없이 만들다 2분 시간 초과로 끝났다.
+    """
+    calls: list[dict[str, object]] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        calls.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={"message": {"content": '{"items": [{"content": "null"'}, "done_reason": "length"},
+        )
+
+    with pytest.raises(PermanentAIError) as e:
+        _classifier(httpx.MockTransport(handle)).classify(FAKE_TRANSCRIPT)
+    assert e.value.code == "llm_output_too_long"
+    assert len(calls) == 1
+    options = calls[0]["options"]
+    assert isinstance(options, dict) and options["num_predict"] == 1024

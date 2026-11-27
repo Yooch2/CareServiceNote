@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     ai_provider: Literal["fake", "local", "gemini"] = "fake"
     mlx_whisper_model: str = "mlx-community/whisper-large-v3-turbo"
     ollama_url: str = "http://localhost:11434"
+    # 분류 출력 최대 토큰 (반복 생성 방지). 보통 출력은 260~360토큰이고 M 시리즈 맥에서
+    # 초당 약 12토큰이라, 1024토큰(약 85초)이면 HTTP 시간 초과(120초) 전에 끝난다.
+    ollama_num_predict: int = 1024
     ollama_model: str = "qwen2.5:7b"
     ollama_num_ctx: int = 8192
     gemini_api_key: str = ""

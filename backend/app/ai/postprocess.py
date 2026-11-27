@@ -54,6 +54,8 @@ def build_draft(
     items: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
     for item in classification.items:
+        if item.content.strip().lower() in ("", "null", "none"):
+            continue  # 작은 모델이 빈 자리를 "null" 문자열로 채운 항목
         evidence = _norm(item.evidence)
         key = (item.category, _norm(item.content), evidence)
         if key in seen:  # 작은 모델이 같은 항목을 두 번 내는 경우
@@ -68,13 +70,18 @@ def build_draft(
         ref = fr.ref.strip()
         if ref not in followups or ref in answered or not fr.result.strip():
             continue
+        located = locate(fr.evidence)
+        if not located["evidence_found"]:
+            # 근거가 전사문에 없는 답은 버린다 (작은 모델이 답이 없을 때 "null"을 적는 경우 포함).
+            # 확인 사항은 '미입력'으로 남아 요양보호사가 직접 쓸 수 있다.
+            continue
         answered.add(ref)
         followup_results.append(
             {
                 "item_id": followups[ref]["item_id"],
                 "result": fr.result.strip(),
                 "evidence": fr.evidence,
-                **locate(fr.evidence),
+                **located,
             }
         )
 

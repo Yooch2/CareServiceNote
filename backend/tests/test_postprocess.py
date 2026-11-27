@@ -88,7 +88,7 @@ def test_duplicate_items_are_merged() -> None:
     assert [i["category"] for i in draft["items"]] == ["remark", "observation"]
 
 
-def test_followup_results_map_refs_and_drop_unknown_or_duplicate() -> None:
+def test_followup_results_map_refs_and_drop_unknown_duplicate_or_ungrounded() -> None:
     followups = {
         "F1": {"item_id": "item-1", "content": "무릎 상태 확인", "visited_on": "2026-11-20"},
         "F2": {"item_id": "item-2", "content": "식사량 확인", "visited_on": "2026-11-20"},
@@ -113,14 +113,20 @@ def test_followup_results_map_refs_and_drop_unknown_or_duplicate() -> None:
             "evidence_found": True,
             "segment_index": 0,
         },
-        {
-            "item_id": "item-2",
-            "result": "반 정도 드심",
-            "evidence": "저녁은 다 드셨",
-            "evidence_found": False,
-            "segment_index": None,
-        },
-    ]
+    ]  # F2는 근거('저녁은 다 드셨')가 전사문에 없어 버림 → 확인 사항은 미입력으로 남는다
+
+
+def test_followup_answer_without_evidence_is_dropped() -> None:
+    """작은 모델이 답이 없을 때 결과·근거에 "null"을 적은 실제 사례 (7단계 평가에서 발견)"""
+    followups = {
+        "F1": {"item_id": "item-1", "content": "안경 수리 확인", "visited_on": "2026-11-20"}
+    }
+    classification = Classification(
+        items=[],
+        mentioned_topics=[],
+        followup_results=[FollowupResult(ref="F1", result="null", evidence="null")],
+    )
+    assert build_draft(TRANSCRIPT, classification, followups)["followup_results"] == []
 
 
 def test_draft_without_followups_has_empty_lists() -> None:
@@ -191,3 +197,16 @@ def test_trailing_punctuation_in_evidence_is_ignored() -> None:
     items = build_draft(TRANSCRIPT, classification)["items"]
     assert [i["evidence_found"] for i in items] == [True, True]
     assert [i["segment_index"] for i in items] == [0, 1]
+
+
+def test_null_items_are_dropped() -> None:
+    classification = Classification(
+        items=[
+            _item("무릎이 아프다고"),
+            DraftItem.model_validate({**_item("null").model_dump(), "content": "null"}),
+        ],
+        mentioned_topics=[],
+    )
+    assert [i["evidence"] for i in build_draft(TRANSCRIPT, classification)["items"]] == [
+        "무릎이 아프다고"
+    ]

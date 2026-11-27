@@ -49,6 +49,7 @@ const ERROR_MESSAGE: Record<string, string> = {
   invalid_ai_output: "AI가 형식에 맞지 않는 결과를 냈습니다.",
   worker_timeout: "처리 시간이 너무 오래 걸렸습니다.",
   consent_withdrawn: "건강정보 처리 동의가 철회되어 AI 처리를 멈췄습니다.",
+  llm_output_too_long: "AI가 정리를 끝내지 못했습니다.",
   gemini_key_missing: "AI 서비스 설정이 빠져 있습니다.",
   gemini_unreachable: "AI 서비스에 연결하지 못했습니다.",
   llm_unreachable: "AI 서비스에 연결하지 못했습니다.",
