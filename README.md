@@ -69,6 +69,7 @@ cd deploy && cp .env.example .env   # DOMAIN, 비밀값, GEMINI_API_KEY 채우�
 docker compose up -d --build
 ```
 
+- **비용 없이 공개**: `deploy/demo.sh up`이 이 컴퓨터에서 띄우고 Cloudflare 무료 임시 터널로 `https://….trycloudflare.com` 주소를 엽니다(계정·카드·도메인 불필요, 시연할 때만 켜는 용도).
 - `ENV=production`이면 위험한 설정(HTTP 쿠키, 짧은 JWT 비밀값, 암호화 키 없음 등)으로는 시작하지 않습니다.
 - `/api`는 Caddy가 API로 바로 보내고(업로드가 화면 서버를 거치지 않음), DB·API 포트는 밖으로 열지 않습니다.
 - 로그인·초대 코드 시도 횟수 제한은 Caddy가 넘겨주는 클라이언트 IP 기준이고, 아이디별 상한을 넘으면 전에 로그인했던 기기만 통과합니다.

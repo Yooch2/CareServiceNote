@@ -11,7 +11,22 @@
                                               └─→ media 볼륨 (암호화된 음성·사진)
 ```
 
-## 처음 올리기
+## 비용 없이 공개 (무료 터널, 시연용)
+
+서버를 빌리지 않고 이 컴퓨터에서 띄운 뒤 [Cloudflare 무료 임시 터널](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/)로 `https://….trycloudflare.com` 주소를 엽니다. 계정·카드·도메인이 필요 없습니다.
+
+```bash
+cd deploy
+cp .env.example .env && chmod 600 .env   # 아래 '처음 올리기' 3번처럼 비밀값과 GEMINI_API_KEY 채우기 (DOMAIN은 쓰지 않음)
+./demo.sh up      # 공개 주소 출력, 1~2분 뒤부터 열림
+./demo.sh down    # 시연이 끝나면 닫기
+```
+
+- HTTPS는 Cloudflare가 맡고, Caddy는 터널 안에서 HTTP로만 받습니다(`Caddyfile.tunnel`). 이 모드에서는 포트를 하나도 열지 않습니다.
+- Caddy는 같은 Docker 네트워크의 cloudflared만 믿고, cloudflared가 넘기는 `Cf-Connecting-IP`를 실제 클라이언트 IP로 써서 API의 시도 횟수 제한이 사람마다 따로 걸립니다.
+- 한계: 이 컴퓨터가 켜져 있을 때만 열리고, 띄울 때마다 주소가 바뀌며, Cloudflare는 임시 터널의 가동 시간을 보장하지 않습니다. 그래서 상시 데모가 아니라 시연·면접용입니다. 상시 공개가 필요하면 아래처럼 서버 한 대에 올립니다(무료로는 신용카드 인증이 필요한 Oracle Cloud Always Free 등, 도메인이 없으면 `DOMAIN=<서버IP>.sslip.io`).
+
+## 처음 올리기 (서버 한 대)
 
 1. 도메인의 A 레코드(IPv6면 AAAA)가 서버 IP를 가리키게 한다. 방화벽은 80·443만 연다.
 2. 코드를 받고 설정 파일을 만든다.
