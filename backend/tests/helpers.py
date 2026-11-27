@@ -3,6 +3,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import worker
@@ -10,27 +11,145 @@ from app.ai.fake import FakeClassifier, FakeTranscriber
 from app.ai.types import Classifier, Transcriber
 from app.config import settings
 from app.db import SessionLocal
-from app.models import Recipient, RecordItem, User, VisitRecord
+from app.invites import hash_code
+from app.models import (
+    Assignment,
+    Consent,
+    Invite,
+    Organization,
+    Recipient,
+    RecordItem,
+    User,
+    VisitRecord,
+)
+
+PASSWORD = "password123"
 
 
-def signup(
-    client: TestClient,
-    login_id: str = "carer01",
-    password: str = "password123",
-    display_name: str = "김요양",
+def new_org(db: Session, name: str = "가상센터") -> Organization:
+    org = Organization(name=name)
+    db.add(org)
+    db.flush()
+    return org
+
+
+def make_user(db: Session, org_id: uuid.UUID, role: str = "caregiver", **kw: Any) -> User:
+    user = User(
+        org_id=org_id,
+        role=role,
+        login_id=kw.pop("login_id", f"u{uuid.uuid4().hex[:8]}"),
+        password_hash=kw.pop("password_hash", "x"),
+        display_name=kw.pop("display_name", "테스트"),
+        **kw,
+    )
+    db.add(user)
+    db.flush()
+    return user
+
+
+def make_invite(
+    db: Session,
+    org_id: uuid.UUID,
+    created_by: uuid.UUID,
+    code: str,
+    role: str = "caregiver",
+    **kw: Any,
+) -> Invite:
+    invite = Invite(
+        org_id=org_id,
+        role=role,
+        code_hash=hash_code(code),
+        expires_at=kw.pop("expires_at", datetime.now(UTC) + timedelta(days=7)),
+        created_by=created_by,
+        **kw,
+    )
+    db.add(invite)
+    db.commit()
+    return invite
+
+
+def signup_center(
+    client: TestClient, login_id: str = "boss01", center_name: str = "가상센터"
 ) -> dict[str, Any]:
+    """센터를 새로 만들고 기관 담당자로 로그인한다."""
     res = client.post(
         "/auth/signup",
-        json={"login_id": login_id, "password": password, "display_name": display_name},
+        json={
+            "login_id": login_id,
+            "password": PASSWORD,
+            "display_name": "박담당",
+            "center_name": center_name,
+        },
     )
     assert res.status_code == 201, res.text
     return res.json()
 
 
-def add_recipient(client: TestClient, name: str = "가상수급자") -> dict[str, Any]:
-    res = client.post("/recipients", json={"name": name})
+def signup(
+    client: TestClient,
+    login_id: str = "carer01",
+    password: str = PASSWORD,
+    display_name: str = "김요양",
+) -> dict[str, Any]:
+    """새 센터의 초대 코드로 요양보호사 가입·로그인한다 (기관 담당자는 DB에 직접 만든다)."""
+    with SessionLocal() as db:
+        org = new_org(db)
+        manager = make_user(db, org.id, "manager")
+        code = f"T{uuid.uuid4().hex[:9].upper()}"
+        make_invite(db, org.id, manager.id, code)
+    res = client.post(
+        "/auth/signup",
+        json={
+            "login_id": login_id,
+            "password": password,
+            "display_name": display_name,
+            "invite_code": code,
+        },
+    )
     assert res.status_code == 201, res.text
     return res.json()
+
+
+def add_recipient(
+    client: TestClient, name: str = "가상수급자", *, consent: bool = True
+) -> dict[str, Any]:
+    """로그인한 요양보호사의 센터에 수급자를 만들고 배정한다 (건강정보 동의 포함)."""
+    me = client.get("/auth/me").json()
+    with SessionLocal() as db:
+        user = db.get(User, uuid.UUID(me["id"]))
+        assert user is not None
+        recipient = Recipient(name=name, org_id=user.org_id)
+        db.add(recipient)
+        db.flush()
+        assign(db, recipient.id, user.id)
+        if consent:
+            give_consent(db, recipient.id, user.id)
+        db.commit()
+        recipient_id = recipient.id
+    res = client.get(f"/recipients/{recipient_id}")
+    assert res.status_code == 200, res.text
+    return res.json()
+
+
+def assign(db: Session, recipient_id: uuid.UUID, caregiver_id: uuid.UUID) -> Assignment:
+    a = Assignment(recipient_id=recipient_id, caregiver_id=caregiver_id, created_by=caregiver_id)
+    db.add(a)
+    db.flush()
+    return a
+
+
+def give_consent(
+    db: Session, recipient_id: uuid.UUID, by: uuid.UUID, kind: str = "health_record"
+) -> Consent:
+    c = Consent(recipient_id=recipient_id, kind=kind, granted_on=date(2026, 11, 1), recorded_by=by)
+    db.add(c)
+    db.flush()
+    return c
+
+
+def login(client: TestClient, login_id: str, password: str = PASSWORD) -> None:
+    res = client.post("/auth/login", json={"login_id": login_id, "password": password})
+    assert res.status_code == 200, res.text
 
 
 def put_audio(
@@ -69,15 +188,26 @@ def make_record(
     transcript: str | None = None,
     with_audio: bool = True,
     recipient_id: uuid.UUID | None = None,
+    consent: bool = True,
 ) -> VisitRecord:
-    user = User(login_id=f"w{uuid.uuid4().hex[:8]}", password_hash="x", display_name="워커테스트")
-    db.add(user)
+    org = new_org(db)
+    user = make_user(db, org.id, display_name="워커테스트")
     if recipient_id is None:
-        recipient = Recipient(name="가상수급자")
+        recipient = Recipient(name="가상수급자", org_id=org.id)
         db.add(recipient)
         db.flush()
         recipient_id = recipient.id
     db.flush()
+    if (
+        consent
+        and db.scalar(
+            select(Consent.id).where(
+                Consent.recipient_id == recipient_id, Consent.withdrawn_at.is_(None)
+            )
+        )
+        is None
+    ):
+        give_consent(db, recipient_id, user.id)
     record_id = uuid.uuid4()
     audio_path = None
     if with_audio:
@@ -124,17 +254,14 @@ def make_confirmed(
 ) -> VisitRecord:
     """확정된 방문 기록을 바로 만든다. items는 (분류, 내용) 목록, risk는 {순번: 위험 태그}."""
     if recipient_id is None:
-        recipient = Recipient(name="가상수급자")
+        recipient = Recipient(name="가상수급자", org_id=new_org(db).id)
         db.add(recipient)
         db.flush()
         recipient_id = recipient.id
     if caregiver_id is None:
-        user = User(
-            login_id=f"c{uuid.uuid4().hex[:8]}", password_hash="x", display_name="확정테스트"
-        )
-        db.add(user)
-        db.flush()
-        caregiver_id = user.id
+        org_id = db.scalar(select(Recipient.org_id).where(Recipient.id == recipient_id))
+        assert org_id is not None
+        caregiver_id = make_user(db, org_id, display_name="확정테스트").id
     record = VisitRecord(
         id=uuid.uuid4(),
         recipient_id=recipient_id,
@@ -159,3 +286,35 @@ def make_confirmed(
     db.add(record)
     db.commit()
     return record
+
+
+def colleague(
+    member: TestClient,
+    other: TestClient,
+    login_id: str = "carer99",
+    *,
+    role: str = "caregiver",
+    assign_to: str | None = None,
+) -> dict[str, Any]:
+    """member와 같은 센터에 초대 코드로 가입시킨다. assign_to(수급자 id)를 주면 배정까지."""
+    me = member.get("/auth/me").json()
+    with SessionLocal() as db:
+        user = db.get(User, uuid.UUID(me["id"]))
+        assert user is not None
+        code = f"T{uuid.uuid4().hex[:9].upper()}"
+        make_invite(db, user.org_id, user.id, code, role)
+    res = other.post(
+        "/auth/signup",
+        json={
+            "login_id": login_id,
+            "password": PASSWORD,
+            "display_name": "동료",
+            "invite_code": code,
+        },
+    )
+    assert res.status_code == 201, res.text
+    if assign_to is not None:
+        with SessionLocal() as db:
+            assign(db, uuid.UUID(assign_to), uuid.UUID(res.json()["id"]))
+            db.commit()
+    return res.json()

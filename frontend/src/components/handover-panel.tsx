@@ -11,7 +11,7 @@ import { Badge, Button, Notice, Sheet } from "./ui";
 const PERIODS: Days[] = [7, 14, 30];
 
 /** 방문 전 확인: 남은 확인 사항, AI 인계 요약, 주의 항목, 최근 확인 결과, 후속 확인 완료율 */
-export function HandoverPanel({ recipientId }: { recipientId: string }) {
+export function HandoverPanel({ recipientId, canSummarize }: { recipientId: string; canSummarize: boolean }) {
   const [days, setDays] = useState<Days>(14);
   const [data, setData] = useState<Handover | null>(null);
   const [failed, setFailed] = useState(false);
@@ -76,6 +76,7 @@ export function HandoverPanel({ recipientId }: { recipientId: string }) {
         days={days}
         summary={data.summary}
         hasRecords={data.last_visit_on !== null}
+        canSummarize={canSummarize}
         onMade={(summary) => setData((d) => (d ? { ...d, summary } : d))}
       />
 
@@ -143,12 +144,14 @@ function SummaryBlock({
   days,
   summary,
   hasRecords,
+  canSummarize,
   onMade,
 }: {
   recipientId: string;
   days: Days;
   summary: HandoverSummary | null;
   hasRecords: boolean;
+  canSummarize: boolean;
   onMade: (s: HandoverSummary) => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -170,14 +173,17 @@ function SummaryBlock({
     <Sheet>
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-lg font-bold">AI 인계 요약</h2>
-        {hasRecords && (
+        {hasRecords && canSummarize && (
           <Button variant={summary ? "ghost" : "secondary"} onClick={make} disabled={busy}>
             {busy ? "만드는 중…" : summary ? "다시 만들기" : "요약 만들기"}
           </Button>
         )}
       </div>
       {!hasRecords && <p className="mt-2 text-muted">확정된 기록이 생기면 요약을 만들 수 있습니다.</p>}
-      {hasRecords && !summary && !error && (
+      {hasRecords && !canSummarize && (
+        <p className="mt-2 text-muted">건강정보 처리 동의가 없어 새 요약을 만들 수 없습니다.</p>
+      )}
+      {hasRecords && canSummarize && !summary && !error && (
         <p className="mt-2 text-muted">최근 {days}일 기록으로 다음 방문에 알아야 할 내용을 정리합니다.</p>
       )}
       {summary?.stale && (

@@ -10,10 +10,25 @@ RiskTag = Literal["fall", "medication", "pain"]
 ShortName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=30)]
 
 
+Role = Literal["manager", "caregiver", "guardian"]
+ConsentKind = Literal["health_record", "guardian_share"]
+Categories = Annotated[list[Category], Field(min_length=1, max_length=3)]
+
+
 class SignupIn(BaseModel):
+    """센터를 새로 만들거나(center_name) 초대 코드로 가입한다(invite_code). 둘 중 하나만."""
+
     login_id: str = Field(pattern=r"^[a-z0-9_]{4,20}$")
     password: str = Field(min_length=8, max_length=128)
     display_name: ShortName
+    center_name: ShortName | None = None
+    invite_code: str | None = Field(default=None, max_length=30)
+
+    @model_validator(mode="after")
+    def _one_way(self) -> "SignupIn":
+        if (self.center_name is None) == (self.invite_code is None):
+            raise ValueError("센터 이름과 초대 코드 중 하나만 입력하세요")
+        return self
 
 
 class LoginIn(BaseModel):
@@ -27,6 +42,8 @@ class UserOut(BaseModel):
     id: uuid.UUID
     login_id: str
     display_name: str
+    role: Role
+    org_name: str
 
 
 class RecipientIn(BaseModel):
@@ -39,6 +56,8 @@ class RecipientOut(BaseModel):
     id: uuid.UUID
     name: str
     created_at: datetime
+    consents: list[ConsentKind]  # 지금 유효한 동의 종류
+    caregiver_names: list[str]  # 지금 배정된 요양보호사
 
 
 class CheckOut(BaseModel):
@@ -98,6 +117,14 @@ class RecordOut(BaseModel):
     has_audio: bool
     created_at: datetime
     confirmed_at: datetime | None
+    review: "ReviewOut | None"
+
+
+class ReviewOut(BaseModel):
+    """센터 확인 서명"""
+
+    reviewer_name: str
+    reviewed_at: datetime
 
 
 class RecordSummaryOut(BaseModel):
@@ -207,3 +234,128 @@ class SearchHitOut(BaseModel):
     category: Category | None
     text: str
     item_id: uuid.UUID | None
+
+
+# --- 3단계: 센터 관리 ---
+
+
+class AssignmentIn(BaseModel):
+    caregiver_id: uuid.UUID
+
+
+class AssignmentOut(BaseModel):
+    id: uuid.UUID
+    caregiver_id: uuid.UUID
+    caregiver_name: str
+    started_at: datetime
+    ended_at: datetime | None
+    pending_records: int  # 이 요양보호사가 남긴 확정 전 기록 수 (해제하면 볼 수 없게 됨)
+
+
+class ConsentIn(BaseModel):
+    kind: ConsentKind
+    granted_on: date
+
+
+class ConsentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    kind: ConsentKind
+    granted_on: date
+    created_at: datetime
+    withdrawn_at: datetime | None
+
+
+class GuardianLinkOut(BaseModel):
+    id: uuid.UUID
+    guardian_id: uuid.UUID
+    guardian_name: str
+    categories: list[Category]
+    active: bool
+    guardian_active: bool
+
+
+class GuardianLinkPatch(BaseModel):
+    categories: Categories | None = None
+    active: bool | None = None
+
+
+class RecipientAdminOut(BaseModel):
+    assignments: list[AssignmentOut]
+    consents: list[ConsentOut]
+    guardians: list[GuardianLinkOut]
+
+
+class MemberOut(BaseModel):
+    id: uuid.UUID
+    login_id: str
+    display_name: str
+    role: Role
+    active: bool
+    recipient_name: str | None  # 보호자일 때 연결된 수급자
+
+
+class MemberPatch(BaseModel):
+    active: bool
+
+
+class InviteIn(BaseModel):
+    role: Literal["caregiver", "guardian"]
+    recipient_id: uuid.UUID | None = None
+    categories: Categories | None = None
+
+    @model_validator(mode="after")
+    def _guardian_target(self) -> "InviteIn":
+        guardian = self.role == "guardian"
+        if guardian != (self.recipient_id is not None) or guardian != (self.categories is not None):
+            raise ValueError("보호자 초대에는 수급자와 열람 범위가 필요합니다")
+        return self
+
+
+class InviteCreatedOut(BaseModel):
+    id: uuid.UUID
+    code: str  # 이 응답에서만 보여 준다
+    expires_at: datetime
+
+
+class InviteOut(BaseModel):
+    id: uuid.UUID
+    role: Literal["caregiver", "guardian"]
+    recipient_name: str | None
+    categories: list[Category] | None
+    expires_at: datetime
+
+
+class ReviewQueueOut(BaseModel):
+    record_id: uuid.UUID
+    recipient_id: uuid.UUID
+    recipient_name: str
+    visited_on: date
+    caregiver_name: str
+    confirmed_at: datetime
+
+
+# --- 3단계: 보호자 (보여 줄 필드만 적는다) ---
+
+
+class GuardianItemOut(BaseModel):
+    category: Category
+    content: str
+
+
+class GuardianCheckOut(BaseModel):
+    followup_content: str
+    result: str
+
+
+class GuardianVisitOut(BaseModel):
+    visited_on: date
+    items: list[GuardianItemOut]
+    checks: list[GuardianCheckOut]
+
+
+class GuardianHomeOut(BaseModel):
+    recipient_name: str
+    categories: list[Category]
+    records: list[GuardianVisitOut]

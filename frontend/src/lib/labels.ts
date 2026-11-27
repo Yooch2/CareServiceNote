@@ -1,4 +1,4 @@
-import type { Category, RecordItem, RecordStatus, RiskTag, Topic } from "./types";
+import type { Category, ConsentKind, RecordItem, RecordStatus, RiskTag, Role, Topic } from "./types";
 
 export const CATEGORY_ORDER: Category[] = ["remark", "observation", "followup"];
 
@@ -48,6 +48,7 @@ const ERROR_MESSAGE: Record<string, string> = {
   empty_transcript: "녹음에서 말소리를 찾지 못했습니다.",
   invalid_ai_output: "AI가 형식에 맞지 않는 결과를 냈습니다.",
   worker_timeout: "처리 시간이 너무 오래 걸렸습니다.",
+  consent_withdrawn: "건강정보 처리 동의가 철회되어 AI 처리를 멈췄습니다.",
   gemini_key_missing: "AI 서비스 설정이 빠져 있습니다.",
   gemini_unreachable: "AI 서비스에 연결하지 못했습니다.",
   llm_unreachable: "AI 서비스에 연결하지 못했습니다.",
@@ -56,4 +57,20 @@ const ERROR_MESSAGE: Record<string, string> = {
 
 export function errorMessage(code: string | null): string {
   return (code && ERROR_MESSAGE[code]) || "자동 정리 중 문제가 생겼습니다.";
+}
+
+export const ROLE_LABEL: Record<Role, string> = {
+  manager: "기관 담당자",
+  caregiver: "요양보호사",
+  guardian: "보호자",
+};
+
+export const CONSENT_LABEL: Record<ConsentKind, string> = {
+  health_record: "건강정보 처리",
+  guardian_share: "보호자 공유",
+};
+
+/** 2026-11-27T05:00:00Z → 2026-11-27 (기기 시간대 기준) */
+export function dateOnly(iso: string): string {
+  return new Date(iso).toLocaleDateString("sv-SE");
 }

@@ -10,6 +10,7 @@ from typing import Any
 from sqlalchemy import and_, or_, select, update
 from sqlalchemy.orm import Session
 
+from app.access import has_consent
 from app.ai.errors import AIError, PermanentAIError
 from app.ai.factory import build_ai
 from app.ai.postprocess import build_draft
@@ -79,6 +80,13 @@ def claim_next(session: Session, now: datetime) -> Claim | None:
             session.commit()
             log.info("record %s -> failed (worker_timeout)", record.id)
             return None
+
+    if not has_consent(session, record.recipient_id, "health_record"):
+        # 업로드 뒤 동의가 철회됐으면 AI로 보내지 않는다
+        record.status, record.error_code, record.claimed_at = "failed", "consent_withdrawn", None
+        session.commit()
+        log.info("record %s -> failed (consent_withdrawn)", record.id)
+        return None
 
     transcript = _stored_transcript(record)
     record.status = "classifying" if transcript else "transcribing"

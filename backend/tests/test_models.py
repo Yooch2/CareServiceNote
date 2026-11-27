@@ -5,14 +5,15 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import FollowupCheck, Recipient, RecordItem, User, VisitRecord
-from tests.helpers import make_confirmed
+from app.models import FollowupCheck, Recipient, RecordItem, VisitRecord
+from tests.helpers import make_confirmed, make_user, new_org
 
 
 def _record(db: Session, **overrides: object) -> VisitRecord:
-    user = User(login_id=f"u{uuid.uuid4().hex[:8]}", password_hash="x", display_name="테스트")
-    recipient = Recipient(name="가상수급자")
-    db.add_all([user, recipient])
+    org = new_org(db)
+    user = make_user(db, org.id)
+    recipient = Recipient(name="가상수급자", org_id=org.id)
+    db.add(recipient)
     db.flush()
     values: dict[str, object] = {
         "id": uuid.uuid4(),

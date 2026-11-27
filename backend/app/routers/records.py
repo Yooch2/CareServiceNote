@@ -11,33 +11,27 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import audio_store
+from app.access import (
+    CaregiverUser,
+    ManagerUser,
+    StaffUser,
+    recipient_for_staff,
+    record_for_staff,
+    require_health_consent,
+)
 from app.config import settings
 from app.confirm import ConfirmError, build_confirmed_items, build_followup_checks
-from app.deps import CurrentUser, DbSession
+from app.deps import DbSession
 from app.models import FollowupCheck, RecordItem, User, VisitRecord
-from app.routers.recipients import get_recipient_or_404
 from app.schemas import ConfirmIn, RecordOut
 
 router = APIRouter(prefix="/records", tags=["records"])
 
-_NOT_FOUND = "기록을 찾을 수 없습니다"
 _UPLOAD_LOCK_KEY = 7_301_001  # 업로드 한도 확인용 advisory lock 번호
 
 
-def load_own_record(
-    db: Session, record_id: uuid.UUID, user: User, *, for_update: bool = False
-) -> VisitRecord:
-    stmt = select(VisitRecord).where(VisitRecord.id == record_id)
-    if for_update:
-        stmt = stmt.with_for_update()
-    record = db.scalar(stmt)
-    if record is None or record.caregiver_id != user.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, _NOT_FOUND)
-    return record
-
-
-def _existing_or_conflict(record: VisitRecord, user: User) -> VisitRecord:
-    if record.caregiver_id != user.id:
+def _existing_or_conflict(record: VisitRecord, user: User, recipient_id: uuid.UUID) -> VisitRecord:
+    if record.caregiver_id != user.id or record.recipient_id != recipient_id:
         raise HTTPException(status.HTTP_409_CONFLICT, "이미 사용된 기록 ID입니다")
     return record
 
@@ -64,18 +58,20 @@ def put_record(
     recipient_id: Annotated[uuid.UUID, Form()],
     visited_on: Annotated[date, Form()],
     recorded_at: Annotated[AwareDatetime, Form()],
-    user: CurrentUser,
+    user: CaregiverUser,
     db: DbSession,
     response: Response,
 ) -> VisitRecord:
+    # 배정이 해제됐으면 재전송이라도 404 (기존 기록 내용을 돌려주지 않는다)
+    recipient_for_staff(db, user, recipient_id)
     existing = db.get(VisitRecord, record_id)
     if existing is not None:
-        return _existing_or_conflict(existing, user)
+        return _existing_or_conflict(existing, user, recipient_id)
+    require_health_consent(db, recipient_id)
 
     ext = audio_store.extension_for(audio.content_type)
     if ext is None:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "지원하지 않는 음성 형식입니다")
-    get_recipient_or_404(db, recipient_id)
 
     try:
         path = audio_store.save(record_id, audio.file, ext)
@@ -114,23 +110,20 @@ def put_record(
         winner = db.get(VisitRecord, record_id)
         if winner is None:
             raise
-        return _existing_or_conflict(winner, user)
+        return _existing_or_conflict(winner, user, recipient_id)
     db.refresh(record)
     response.status_code = status.HTTP_201_CREATED
     return record
 
 
 @router.get("/{record_id}", response_model=RecordOut)
-def get_record(record_id: uuid.UUID, user: CurrentUser, db: DbSession) -> VisitRecord:
-    record = db.get(VisitRecord, record_id)
-    if record is None or (record.status != "confirmed" and record.caregiver_id != user.id):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, _NOT_FOUND)
-    return record
+def get_record(record_id: uuid.UUID, user: StaffUser, db: DbSession) -> VisitRecord:
+    return record_for_staff(db, user, record_id)
 
 
 @router.get("/{record_id}/audio")
-def get_audio(record_id: uuid.UUID, user: CurrentUser, db: DbSession) -> FileResponse:
-    record = load_own_record(db, record_id, user)
+def get_audio(record_id: uuid.UUID, user: CaregiverUser, db: DbSession) -> FileResponse:
+    record = record_for_staff(db, user, record_id, own=True)
     if record.audio_path is None or not Path(record.audio_path).exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "음성 파일이 없습니다")
     path = Path(record.audio_path)
@@ -140,9 +133,10 @@ def get_audio(record_id: uuid.UUID, user: CurrentUser, db: DbSession) -> FileRes
 
 @router.post("/{record_id}/confirm", response_model=RecordOut)
 def confirm_record(
-    record_id: uuid.UUID, body: ConfirmIn, user: CurrentUser, db: DbSession
+    record_id: uuid.UUID, body: ConfirmIn, user: CaregiverUser, db: DbSession
 ) -> VisitRecord:
-    record = load_own_record(db, record_id, user, for_update=True)
+    record = record_for_staff(db, user, record_id, own=True, for_update=True)
+    require_health_consent(db, record.recipient_id)
     if record.status not in ("draft_ready", "failed"):
         raise HTTPException(status.HTTP_409_CONFLICT, "지금은 확정할 수 없는 상태입니다")
     draft = record.draft or {}
@@ -170,6 +164,18 @@ def confirm_record(
 
 
 _ALREADY_CHECKED = "이미 다른 기록에서 확인된 항목입니다. 새로고침해 주세요"
+
+
+@router.post("/{record_id}/review", response_model=RecordOut)
+def review_record(record_id: uuid.UUID, user: ManagerUser, db: DbSession) -> VisitRecord:
+    """센터 확인 서명. 확정 기록에 한 번만 남긴다."""
+    record = record_for_staff(db, user, record_id, for_update=True)
+    if record.reviewed_at is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "이미 확인 서명한 기록입니다")
+    record.reviewed_by, record.reviewed_at = user.id, datetime.now(UTC)
+    db.commit()
+    db.refresh(record, ["reviewer"])
+    return record
 
 
 def _ensure_open_followups(db: Session, record: VisitRecord, item_ids: list[uuid.UUID]) -> None:

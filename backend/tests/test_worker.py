@@ -173,3 +173,13 @@ def test_open_followups_are_sent_and_snapshotted(db: Session) -> None:
     [result] = fresh.draft["followup_results"]
     assert result["item_id"] == followup_id and result["evidence_found"] is True
     assert str(other.items[0].id) not in str(fresh.draft)
+
+
+def test_withdrawn_consent_stops_ai_processing(db: Session) -> None:
+    record = make_record(db, consent=False)
+    transcriber = FakeTranscriber()
+    assert worker.run_once(SessionLocal, transcriber, FakeClassifier(), lambda: NOW) is False
+    db.refresh(record)
+    assert record.status == "failed"
+    assert record.error_code == "consent_withdrawn"
+    assert transcriber.calls == 0

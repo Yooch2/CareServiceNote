@@ -2,7 +2,7 @@ import uuid
 
 from fastapi.testclient import TestClient
 
-from tests.helpers import add_recipient, signup
+from tests.helpers import add_recipient, signup, signup_center
 
 
 def test_requires_login(client: TestClient) -> None:
@@ -10,11 +10,12 @@ def test_requires_login(client: TestClient) -> None:
     assert client.post("/recipients", json={"name": "가상"}).status_code == 401
 
 
-def test_create_list_get(client: TestClient) -> None:
-    signup(client)
-    first = add_recipient(client, "  가상수급자A  ")
-    add_recipient(client, "가상수급자B")
+def test_manager_creates_and_lists(client: TestClient) -> None:
+    signup_center(client)
+    first = client.post("/recipients", json={"name": "  가상수급자A  "}).json()
+    client.post("/recipients", json={"name": "가상수급자B"})
     assert first["name"] == "가상수급자A"
+    assert first["consents"] == [] and first["caregiver_names"] == []
 
     listed = client.get("/recipients").json()
     assert [r["name"] for r in listed] == ["가상수급자A", "가상수급자B"]
@@ -22,6 +23,15 @@ def test_create_list_get(client: TestClient) -> None:
     got = client.get(f"/recipients/{first['id']}")
     assert got.status_code == 200
     assert got.json()["id"] == first["id"]
+
+
+def test_caregiver_sees_only_assigned_and_cannot_create(client: TestClient) -> None:
+    signup(client)
+    mine = add_recipient(client, "가상수급자A")
+    assert mine["consents"] == ["health_record"]
+    assert mine["caregiver_names"] == ["김요양"]
+    assert [r["id"] for r in client.get("/recipients").json()] == [mine["id"]]
+    assert client.post("/recipients", json={"name": "가상"}).status_code == 403
 
 
 def test_not_found_does_not_echo_input(client: TestClient) -> None:
@@ -33,6 +43,6 @@ def test_not_found_does_not_echo_input(client: TestClient) -> None:
 
 
 def test_name_validation(client: TestClient) -> None:
-    signup(client)
+    signup_center(client)
     assert client.post("/recipients", json={"name": "  "}).status_code == 422
     assert client.post("/recipients", json={"name": "가" * 31}).status_code == 422

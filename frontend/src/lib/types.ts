@@ -9,16 +9,23 @@ export type RecordStatus =
   | "failed"
   | "confirmed";
 
+export type Role = "manager" | "caregiver" | "guardian";
+export type ConsentKind = "health_record" | "guardian_share";
+
 export interface User {
   id: string;
   login_id: string;
   display_name: string;
+  role: Role;
+  org_name: string;
 }
 
 export interface Recipient {
   id: string;
   name: string;
   created_at: string;
+  consents: ConsentKind[];
+  caregiver_names: string[];
 }
 
 export interface Segment {
@@ -106,6 +113,7 @@ export interface VisitRecord {
   has_audio: boolean;
   created_at: string;
   confirmed_at: string | null;
+  review: { reviewer_name: string; reviewed_at: string } | null;
 }
 
 export interface RecordSummary {
@@ -183,4 +191,80 @@ export interface SearchHit {
   category: Category | null;
   text: string;
   item_id: string | null;
+}
+
+// --- 3단계: 센터 관리 ---
+
+export interface Assignment {
+  id: string;
+  caregiver_id: string;
+  caregiver_name: string;
+  started_at: string;
+  ended_at: string | null;
+  pending_records: number;
+}
+
+export interface Consent {
+  id: string;
+  kind: ConsentKind;
+  granted_on: string;
+  created_at: string;
+  withdrawn_at: string | null;
+}
+
+export interface GuardianLink {
+  id: string;
+  guardian_id: string;
+  guardian_name: string;
+  categories: Category[];
+  active: boolean;
+  guardian_active: boolean;
+}
+
+export interface RecipientAdmin {
+  assignments: Assignment[];
+  consents: Consent[];
+  guardians: GuardianLink[];
+}
+
+export interface Member {
+  id: string;
+  login_id: string;
+  display_name: string;
+  role: Role;
+  active: boolean;
+  recipient_name: string | null;
+}
+
+export interface Invite {
+  id: string;
+  role: "caregiver" | "guardian";
+  recipient_name: string | null;
+  categories: Category[] | null;
+  expires_at: string;
+}
+
+export interface InviteCreated {
+  id: string;
+  code: string;
+  expires_at: string;
+}
+
+export interface ReviewQueueItem {
+  record_id: string;
+  recipient_id: string;
+  recipient_name: string;
+  visited_on: string;
+  caregiver_name: string;
+  confirmed_at: string;
+}
+
+export interface GuardianHome {
+  recipient_name: string;
+  categories: Category[];
+  records: {
+    visited_on: string;
+    items: { category: Category; content: string }[];
+    checks: { followup_content: string; result: string }[];
+  }[];
 }

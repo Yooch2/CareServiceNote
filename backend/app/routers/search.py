@@ -1,13 +1,12 @@
-import uuid
 from datetime import date, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import or_, select
 
-from app.deps import CurrentUser, DbSession
+from app.access import StaffRecipient
+from app.deps import DbSession
 from app.models import FollowupCheck, RecordItem, VisitRecord
-from app.routers.recipients import get_recipient_or_404
 from app.schemas import Category, SearchHitOut
 
 router = APIRouter(prefix="/recipients", tags=["search"])
@@ -33,15 +32,14 @@ def snippet(text: str, q: str, width: int = SNIPPET_WIDTH) -> str:
 
 @router.get("/{recipient_id}/search", response_model=list[SearchHitOut])
 def search(
-    recipient_id: uuid.UUID,
+    recipient: StaffRecipient,
     db: DbSession,
-    _: CurrentUser,
     q: Annotated[str, Query(max_length=100)],
     category: Category | None = None,
     days: Annotated[int | None, Query(ge=1, le=365)] = None,
 ) -> list[SearchHitOut]:
     """확정된 기록 안에서 항목 내용·근거, 확인 결과, 전사문을 찾는다 (수급자 한 명 범위)."""
-    get_recipient_or_404(db, recipient_id)
+    recipient_id = recipient.id
     q = q.strip()
     if not 2 <= len(q) <= 50:
         raise HTTPException(

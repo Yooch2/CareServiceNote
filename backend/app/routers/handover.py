@@ -7,15 +7,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.access import StaffRecipient, StaffUser, require_health_consent
 from app.ai.errors import AIError, TransientAIError
 from app.ai.factory import build_llm
 from app.ai.summary import clean_summary, summarize
 from app.ai.types import StructuredLLM
 from app.config import settings
-from app.deps import CurrentUser, DbSession
+from app.deps import DbSession
 from app.followups import open_followups
 from app.models import AiUsage, FollowupCheck, HandoverSummary, RecordItem, User, VisitRecord
-from app.routers.recipients import get_recipient_or_404
 from app.schemas import (
     CompletionOut,
     Days,
@@ -69,14 +69,12 @@ def _confirmed_in_period(recipient_id: uuid.UUID, days: int) -> Any:
 
 
 @router.get("/{recipient_id}/handover", response_model=HandoverOut)
-def get_handover(
-    recipient_id: uuid.UUID, db: DbSession, _: CurrentUser, days: DaysQuery
-) -> HandoverOut:
+def get_handover(recipient: StaffRecipient, db: DbSession, days: DaysQuery) -> HandoverOut:
     """방문 전 확인 묶음.
 
     남은 확인 사항은 기간과 관계없이 전부, 위험 항목·확인 결과·완료율은 기간 안, 저장된 AI 요약.
     """
-    get_recipient_or_404(db, recipient_id)
+    recipient_id = recipient.id
     period = _confirmed_in_period(recipient_id, days)
 
     last_visit_on = db.scalar(
@@ -240,14 +238,15 @@ def _summary_lines(
 
 @router.post("/{recipient_id}/handover/summary", response_model=SummaryOutApi)
 def create_summary(
-    recipient_id: uuid.UUID,
+    recipient: StaffRecipient,
     db: DbSession,
-    user: CurrentUser,
+    user: StaffUser,
     llm: Annotated[StructuredLLM, Depends(get_llm)],
     days: DaysQuery,
 ) -> SummaryOutApi:
     """기간 내 확정 항목으로 AI 인계 요약을 만든다. 문장마다 근거 항목이 있어야 남긴다."""
-    get_recipient_or_404(db, recipient_id)
+    recipient_id = recipient.id
+    require_health_consent(db, recipient_id)
     lines, refs, covered_until = _summary_lines(db, recipient_id, days)
     if not lines:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "요약할 확정 기록이 없습니다")

@@ -1,5 +1,4 @@
 import uuid
-from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -10,13 +9,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.main import app
 from app.models import VisitRecord
-from tests.helpers import add_recipient, put_audio, signup
-
-
-@pytest.fixture
-def other_client() -> Iterator[TestClient]:
-    with TestClient(app) as c:
-        yield c
+from tests.helpers import add_recipient, colleague, put_audio, signup
 
 
 def test_put_creates_then_is_idempotent(client: TestClient, db: Session) -> None:
@@ -47,7 +40,7 @@ def test_put_same_id_by_other_user_conflicts(client: TestClient, other_client: T
     record_id = str(uuid.uuid4())
     assert put_audio(client, record_id, recipient["id"]).status_code == 201
 
-    signup(other_client, login_id="carer99")
+    colleague(client, other_client, assign_to=recipient["id"])
     assert put_audio(other_client, record_id, recipient["id"]).status_code == 409
 
 
@@ -75,7 +68,7 @@ def test_daily_limits(
 
     monkeypatch.setattr(settings, "daily_records_per_user", 100)
     monkeypatch.setattr(settings, "daily_records_total", 1)
-    signup(other_client, login_id="carer99")
+    colleague(client, other_client, assign_to=rid)
     assert put_audio(other_client, str(uuid.uuid4()), rid).status_code == 429
 
 
@@ -91,7 +84,7 @@ def test_record_visibility(client: TestClient, other_client: TestClient, db: Ses
     assert audio.content == b"fake-audio"
     assert audio.headers["content-type"].startswith("audio/webm")
 
-    signup(other_client, login_id="carer99")
+    colleague(client, other_client, assign_to=rid)
     assert other_client.get(f"/records/{record_id}").status_code == 404
     assert other_client.get(f"/records/{record_id}/audio").status_code == 404
     assert other_client.get(f"/recipients/{rid}/records").json() == []
