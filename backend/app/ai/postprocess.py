@@ -1,4 +1,5 @@
 import re
+from collections.abc import Mapping
 from typing import Any
 
 from app.ai.types import TOPICS, Classification, Transcript
@@ -8,8 +9,16 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def build_draft(transcript: Transcript, classification: Classification) -> dict[str, Any]:
-    """LLM 결과에 서버가 확인한 값(근거 존재 여부, 구간 위치, 빠진 주제)을 붙인다."""
+def build_draft(
+    transcript: Transcript,
+    classification: Classification,
+    followups: Mapping[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """LLM 결과에 서버가 확인한 값(근거 존재 여부, 구간 위치, 빠진 주제)을 붙인다.
+
+    followups는 분류에 넘긴 이전 확인 사항 {참조 번호: {item_id, content, visited_on}}.
+    """
+    followups = followups or {}
     full = _norm(transcript.text)
     joined = ""
     starts: list[int] = []
@@ -19,6 +28,18 @@ def build_draft(transcript: Transcript, classification: Classification) -> dict[
         starts.append(len(joined))
         joined += _norm(seg.text)
 
+    def locate(raw_evidence: str) -> dict[str, Any]:
+        evidence = _norm(raw_evidence)
+        segment_index: int | None = None
+        if evidence and starts:
+            pos = joined.find(evidence)
+            if pos >= 0:
+                segment_index = max(i for i, start in enumerate(starts) if start <= pos)
+        return {
+            "evidence_found": bool(evidence) and evidence in full,
+            "segment_index": segment_index,
+        }
+
     items: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
     for item in classification.items:
@@ -27,16 +48,22 @@ def build_draft(transcript: Transcript, classification: Classification) -> dict[
         if key in seen:  # 작은 모델이 같은 항목을 두 번 내는 경우
             continue
         seen.add(key)
-        segment_index: int | None = None
-        if evidence and starts:
-            pos = joined.find(evidence)
-            if pos >= 0:
-                segment_index = max(i for i, start in enumerate(starts) if start <= pos)
-        items.append(
+        items.append({**item.model_dump(), **locate(item.evidence)})
+
+    # 분류에 넘긴 확인 사항에 대한 결과만, 사항마다 하나씩
+    followup_results: list[dict[str, Any]] = []
+    answered: set[str] = set()
+    for fr in classification.followup_results:
+        ref = fr.ref.strip()
+        if ref not in followups or ref in answered or not fr.result.strip():
+            continue
+        answered.add(ref)
+        followup_results.append(
             {
-                **item.model_dump(),
-                "evidence_found": bool(evidence) and evidence in full,
-                "segment_index": segment_index,
+                "item_id": followups[ref]["item_id"],
+                "result": fr.result.strip(),
+                "evidence": fr.evidence,
+                **locate(fr.evidence),
             }
         )
 
@@ -46,4 +73,9 @@ def build_draft(transcript: Transcript, classification: Classification) -> dict[
         for m in classification.mentioned_topics
         if _norm(m.evidence) and _norm(m.evidence) in full
     }
-    return {"items": items, "missing_topics": [t for t in TOPICS if t not in mentioned]}
+    return {
+        "items": items,
+        "missing_topics": [t for t in TOPICS if t not in mentioned],
+        "open_followups": list(followups.values()),
+        "followup_results": followup_results,
+    }

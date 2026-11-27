@@ -68,10 +68,15 @@ def make_record(
     status: str = "queued",
     transcript: str | None = None,
     with_audio: bool = True,
+    recipient_id: uuid.UUID | None = None,
 ) -> VisitRecord:
     user = User(login_id=f"w{uuid.uuid4().hex[:8]}", password_hash="x", display_name="워커테스트")
-    recipient = Recipient(name="가상수급자")
-    db.add_all([user, recipient])
+    db.add(user)
+    if recipient_id is None:
+        recipient = Recipient(name="가상수급자")
+        db.add(recipient)
+        db.flush()
+        recipient_id = recipient.id
     db.flush()
     record_id = uuid.uuid4()
     audio_path = None
@@ -82,7 +87,7 @@ def make_record(
         audio_path = str(path)
     record = VisitRecord(
         id=record_id,
-        recipient_id=recipient.id,
+        recipient_id=recipient_id,
         caregiver_id=user.id,
         visited_on=date(2026, 11, 27),
         recorded_at=datetime(2026, 11, 27, 1, 0, tzinfo=UTC),

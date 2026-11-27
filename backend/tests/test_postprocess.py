@@ -1,5 +1,12 @@
 from app.ai.postprocess import build_draft
-from app.ai.types import Classification, DraftItem, Segment, TopicMention, Transcript
+from app.ai.types import (
+    Classification,
+    DraftItem,
+    FollowupResult,
+    Segment,
+    TopicMention,
+    Transcript,
+)
 
 TRANSCRIPT = Transcript(
     text="오늘 어르신이   무릎이 아프다고 하셨어요.\n점심은 반 정도 드셨습니다.",
@@ -75,3 +82,43 @@ def test_duplicate_items_are_merged() -> None:
     items = [_item("반 정도 드셨"), _item("반 정도  드셨"), _item("반 정도 드셨", "observation")]
     draft = build_draft(TRANSCRIPT, Classification(items=items, mentioned_topics=[]))
     assert [i["category"] for i in draft["items"]] == ["remark", "observation"]
+
+
+def test_followup_results_map_refs_and_drop_unknown_or_duplicate() -> None:
+    followups = {
+        "F1": {"item_id": "item-1", "content": "무릎 상태 확인", "visited_on": "2026-11-20"},
+        "F2": {"item_id": "item-2", "content": "식사량 확인", "visited_on": "2026-11-20"},
+    }
+    classification = Classification(
+        items=[],
+        mentioned_topics=[],
+        followup_results=[
+            FollowupResult(ref=" F1 ", result=" 아직 아프다고 하심 ", evidence="무릎이 아프다고"),
+            FollowupResult(ref="F1", result="중복", evidence="무릎이 아프다고"),
+            FollowupResult(ref="F9", result="없는 사항", evidence="점심은"),
+            FollowupResult(ref="F2", result="반 정도 드심", evidence="저녁은 다 드셨"),
+        ],
+    )
+    draft = build_draft(TRANSCRIPT, classification, followups)
+    assert draft["open_followups"] == list(followups.values())
+    assert draft["followup_results"] == [
+        {
+            "item_id": "item-1",
+            "result": "아직 아프다고 하심",
+            "evidence": "무릎이 아프다고",
+            "evidence_found": True,
+            "segment_index": 0,
+        },
+        {
+            "item_id": "item-2",
+            "result": "반 정도 드심",
+            "evidence": "저녁은 다 드셨",
+            "evidence_found": False,
+            "segment_index": None,
+        },
+    ]
+
+
+def test_draft_without_followups_has_empty_lists() -> None:
+    draft = build_draft(TRANSCRIPT, Classification(items=[], mentioned_topics=[]))
+    assert draft["open_followups"] == [] and draft["followup_results"] == []

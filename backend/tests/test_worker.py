@@ -10,7 +10,7 @@ from app.ai.fake import FakeClassifier, FakeTranscriber
 from app.ai.types import Transcript
 from app.db import SessionLocal
 from app.models import VisitRecord
-from tests.helpers import make_record
+from tests.helpers import make_confirmed, make_record
 
 # 기록의 available_at은 DB 현재 시각으로 들어가므로, 고정 날짜 대신 실행 시각보다 조금 뒤로 둔다
 NOW = datetime.now(UTC).replace(microsecond=0) + timedelta(minutes=1)
@@ -148,3 +148,28 @@ def test_lost_claim_does_not_overwrite(db: Session) -> None:
     worker.process(claim, SessionLocal, FakeTranscriber(), FakeClassifier(), lambda: NOW)
     fresh = _reload(db, record)
     assert fresh.status == "transcribing" and fresh.transcript is None
+
+
+def test_open_followups_are_sent_and_snapshotted(db: Session) -> None:
+    earlier = make_confirmed(
+        db, [("followup", "무릎 상태와 산책 의향 다시 확인"), ("remark", "무릎이 불편")]
+    )
+    other = make_confirmed(db, [("followup", "다른 수급자 확인 사항")])
+    record = make_record(db, recipient_id=earlier.recipient_id)
+    classifier = FakeClassifier()
+
+    assert _run(FakeTranscriber(), classifier) is True
+    fresh = _reload(db, record)
+    assert fresh.status == "draft_ready" and fresh.draft is not None
+    followup_id = str(earlier.items[0].id)
+    assert [f.content for f in classifier.last_followups] == ["무릎 상태와 산책 의향 다시 확인"]
+    assert fresh.draft["open_followups"] == [
+        {
+            "item_id": followup_id,
+            "content": "무릎 상태와 산책 의향 다시 확인",
+            "visited_on": "2026-11-20",
+        }
+    ]
+    [result] = fresh.draft["followup_results"]
+    assert result["item_id"] == followup_id and result["evidence_found"] is True
+    assert str(other.items[0].id) not in str(fresh.draft)

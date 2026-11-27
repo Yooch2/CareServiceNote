@@ -13,9 +13,10 @@ from sqlalchemy.orm import Session
 from app.ai.errors import AIError, PermanentAIError
 from app.ai.factory import build_ai
 from app.ai.postprocess import build_draft
-from app.ai.types import Classifier, Segment, Transcriber, Transcript
+from app.ai.types import Classifier, OpenFollowup, Segment, Transcriber, Transcript
 from app.config import settings
 from app.db import SessionLocal
+from app.followups import open_followups
 from app.models import VisitRecord
 
 log = logging.getLogger("csn.worker")
@@ -24,6 +25,7 @@ MAX_ATTEMPTS = 3
 BACKOFF_SECONDS = (5, 30)
 STALE_AFTER = timedelta(minutes=10)
 IDLE_SLEEP_SECONDS = 2.0
+MAX_FOLLOWUPS_IN_PROMPT = 10
 
 SessionFactory = Callable[[], Session]
 Clock = Callable[[], datetime]
@@ -32,6 +34,7 @@ Clock = Callable[[], datetime]
 @dataclass(frozen=True)
 class Claim:
     record_id: uuid.UUID
+    recipient_id: uuid.UUID
     claimed_at: datetime
     audio_path: str | None
     transcript: Transcript | None
@@ -80,7 +83,7 @@ def claim_next(session: Session, now: datetime) -> Claim | None:
     transcript = _stored_transcript(record)
     record.status = "classifying" if transcript else "transcribing"
     record.claimed_at = now
-    claim = Claim(record.id, now, record.audio_path, transcript)
+    claim = Claim(record.id, record.recipient_id, now, record.audio_path, transcript)
     session.commit()
     return claim
 
@@ -118,6 +121,25 @@ def _record_failure(
         return record.status
 
 
+def _followups_for_prompt(
+    session_factory: SessionFactory, recipient_id: uuid.UUID
+) -> list[tuple[OpenFollowup, dict[str, Any]]]:
+    """분류에 넘길 이전 확인 사항과 draft에 남길 스냅샷. LLM에는 참조 번호와 내용만 보낸다."""
+    with session_factory() as s:
+        items = open_followups(s, recipient_id, limit=MAX_FOLLOWUPS_IN_PROMPT)
+    return [
+        (
+            OpenFollowup(f"F{i}", item.content, item.visited_on),
+            {
+                "item_id": str(item.item_id),
+                "content": item.content,
+                "visited_on": item.visited_on.isoformat(),
+            },
+        )
+        for i, item in enumerate(items, start=1)
+    ]
+
+
 def process(
     claim: Claim,
     session_factory: SessionFactory,
@@ -141,7 +163,9 @@ def process(
                 approximate_times=transcript.approximate_times,
             ):
                 return
-        draft = build_draft(transcript, classifier.classify(transcript))
+        followups = _followups_for_prompt(session_factory, claim.recipient_id)
+        classification = classifier.classify(transcript, [f for f, _ in followups])
+        draft = build_draft(transcript, classification, {f.ref: snap for f, snap in followups})
         if _update_if_owned(
             session_factory,
             claim,
