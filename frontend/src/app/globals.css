@@ -21,6 +21,8 @@ body {
   background: var(--color-paper);
   color: var(--color-ink);
   font-feature-settings: "tnum";
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 
 :focus-visible {
