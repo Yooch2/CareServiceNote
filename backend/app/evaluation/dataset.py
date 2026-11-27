@@ -33,6 +33,8 @@ class Scenario:
     meal_level: int | None = None
     mood: str | None = None
     followups: tuple[FollowupCase, ...] = field(default_factory=tuple)
+    # dev: 프롬프트를 고칠 때 본 시나리오 / holdout: 고친 뒤 일반화를 보려고 따로 둔 시나리오
+    group: str = "dev"
 
 
 E = Expect
@@ -183,6 +185,59 @@ SCENARIOS: tuple[Scenario, ...] = (
         mood="good",
     ),
 )
+
+
+HOLDOUT: tuple[Scenario, ...] = (
+    Scenario(
+        "h-handwash",
+        "부위가 나오지만 불편이 아님(손 씻기), 기분 언급 없음",
+        "식사 전에 손을 깨끗이 씻겨 드렸어요. 점심은 대부분 드셨고 후식으로 사과도 드셨어요.",
+        (E("observation", ("손",)),),
+        optional=(E("observation", ("점심|식사|사과",)),),
+        no_body_part=("손", "씻"),
+        meal_level=3,
+        group="holdout",
+    ),
+    Scenario(
+        "h-belt-waist",
+        "허리띠(물건) vs 허리 통증, 두 주제가 한 문장",
+        "새 허리띠가 잘 맞는다고 하셨고 요즘은 허리도 안 아프다고 하셨어요.",
+        (E("remark", ("허리띠",)),),
+        optional=(E("remark", ("허리",)), E("remark", ("허리띠|허리",))),
+        no_body_part=("허리띠",),
+        group="holdout",
+    ),
+    Scenario(
+        "h-two-topics",
+        "여러 주제가 섞인 말을 나눠 적는지",
+        "손주 결혼식에 꼭 가고 싶다고 하셨고, 틀니가 헐거워서 밥 먹기가 불편하다고 하셨어요. 다음에 치과 예약 여부를 확인해야겠어요.",
+        (E("remark", ("결혼식|손주",)), E("remark", ("틀니",)), E("followup", ("치과",))),
+        optional=(E("remark", ("밥|식사",)),),
+        group="holdout",
+    ),
+    Scenario(
+        "h-tired-not-mood",
+        "졸려 하심 ≠ 기분 처짐, 기분 직접 언급 없음",
+        "오후 내내 졸려 하셔서 낮잠을 주무시게 했어요. 일어나서 물을 한 잔 드셨어요.",
+        (E("observation", ("졸|낮잠|주무",)),),
+        optional=(E("observation", ("물",)),),
+        group="holdout",
+    ),
+    Scenario(
+        "h-followup-partial",
+        "이전 확인 사항 둘 중 하나만 답이 있음",
+        "지난번에 말씀하신 보청기는 아드님이 고쳐 오셨다고 하셨어요. 오늘은 날씨 이야기를 많이 하셨어요.",
+        (),
+        optional=(E("remark", ("보청기",)), E("remark", ("날씨",)), E("observation", ("날씨",))),
+        followups=(
+            FollowupCase("F1", "보청기 수리 여부 확인", True),
+            FollowupCase("F2", "다음 주 병원 예약 날짜 확인", False),
+        ),
+        group="holdout",
+    ),
+)
+
+ALL_SCENARIOS: tuple[Scenario, ...] = SCENARIOS + HOLDOUT
 
 
 @dataclass(frozen=True)

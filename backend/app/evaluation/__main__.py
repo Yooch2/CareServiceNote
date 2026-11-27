@@ -26,7 +26,7 @@ from app.ai.types import OpenFollowup, Segment, Transcript
 from app.config import settings
 from app.db import SessionLocal
 from app.evaluation.alerts_eval import run_alert_scenarios
-from app.evaluation.dataset import SCENARIOS, Scenario
+from app.evaluation.dataset import ALL_SCENARIOS, Scenario
 from app.evaluation.metrics import Counts, cer, false_counts, score, summary_table
 from app.masking import mask_transcript
 
@@ -113,11 +113,12 @@ def _pct(v: float | None) -> str:
 
 
 def report(provider: str, runs: list[tuple[Counts, list[float], tuple[int, int]]],
-           alerts: list[Any], stt: list[tuple[str, float]], errors: list[str]) -> str:  # fmt: skip
+           alerts: list[Any], stt: list[tuple[str, float]], errors: list[str],
+           n_scenarios: int, group: str) -> str:  # fmt: skip
     lines = [
         f"# 평가 결과: {provider}",
         "",
-        f"- 실행: {datetime.now(UTC):%Y-%m-%d %H:%M} UTC, 시나리오 {len(SCENARIOS)}개 × {len(runs)}회",
+        f"- 실행: {datetime.now(UTC):%Y-%m-%d %H:%M} UTC, 시나리오 {n_scenarios}개({group}) × {len(runs)}회",
         f"- 모델: {settings.ollama_model if provider == 'local' else settings.gemini_model if provider == 'gemini' else 'fake'}",
         "",
         "## 분류 (반복 평균, 괄호는 최소~최대)",
@@ -179,6 +180,7 @@ def main() -> None:
         "--stt", action="store_true", help="say 음성으로 전사 오류율도 잰다 (macOS)"
     )
     parser.add_argument("--out", type=Path)
+    parser.add_argument("--group", choices=["dev", "holdout", "all"], default="all")
     parser.add_argument(
         "--pace", type=float, default=0.0, help="AI 호출 사이 대기(초). 무료 등급 분당 한도용"
     )
@@ -187,10 +189,11 @@ def main() -> None:
     settings.ai_provider = args.provider
     transcriber, classifier = build_ai()
     llm = build_llm()
+    scenarios = [s for s in ALL_SCENARIOS if args.group in ("all", s.group)]
     runs, errors = [], []
     for n in range(args.repeat):
         counts, latencies, kept, total = Counts(), [], 0, 0
-        for scenario in SCENARIOS:
+        for scenario in scenarios:
             try:
                 draft, elapsed = _retrying(lambda sc=scenario: classify(classifier, sc), args.pace)
                 g = _retrying(lambda d=draft: grounded(llm, d), args.pace)
@@ -204,8 +207,8 @@ def main() -> None:
         runs.append((counts, latencies, (kept, total)))
     with SessionLocal() as db:
         alerts = run_alert_scenarios(db)
-    stt = stt_cer(transcriber, list(SCENARIOS[:5]), args.pace, errors) if args.stt else []
-    text = report(args.provider, runs, alerts, stt, errors)
+    stt = stt_cer(transcriber, scenarios[:5], args.pace, errors) if args.stt else []
+    text = report(args.provider, runs, alerts, stt, errors, len(scenarios), args.group)
     print(text)
     if args.out:
         args.out.write_text(text)
