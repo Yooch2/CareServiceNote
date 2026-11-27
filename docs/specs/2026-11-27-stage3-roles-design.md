@@ -167,15 +167,17 @@
 - `DELETE /recipients/{id}/assignments/{assignment_id}`: `ended_at` 채움.
 - `POST /recipients/{id}/consents` `{kind, granted_on}`: 이미 유효하면 409. `granted_on`은 미래 날짜 불가.
 - `POST /recipients/{id}/consents/{consent_id}/withdraw`.
-- `PATCH /guardian-links/{id}` `{categories?, active?}`: 같은 센터만. categories는 1개 이상.
+- `PATCH /org/guardian-links/{id}` `{categories?, active?}`: 같은 센터만. categories는 1개 이상.
 
 ### 기존 API 변경
 - `GET /recipients`, `GET /recipients/{id}`, `/records`, `/handover`, `/handover/summary`, `/search`: 모두 `recipient_for_staff`를 거친다. 보호자는 403.
 - `GET /recipients` 응답에 `consents: {health_record: bool, guardian_share: bool}` 추가(녹음 버튼 상태용).
 - `PUT /records/{id}`: caregiver + 배정 + 건강정보 동의(없으면 409 "건강정보 처리 동의가 없어 기록할 수 없습니다"). 같은 id 재전송(1단계 중복 방지)은 그대로 기존 기록을 돌려준다.
 - `GET /records/{id}`: 수급자 접근 확인 후, 확정 전이면 작성자만. 응답에 `review: {reviewer_name, reviewed_at} | null` 추가.
-- `GET /records/{id}/audio`, `POST /records/{id}/confirm`: 작성자 + 지금 배정 중.
-- `POST /records/{id}/review` (manager): 확정 기록만(아니면 409), 이미 서명했으면 409.
+- `GET /records/{id}/audio`: 작성자 + 지금 배정 중.
+- `POST /records/{id}/confirm`: 작성자 + 지금 배정 중 + 건강정보 동의(없으면 409).
+- 워커: 기록을 가져갈 때 건강정보 동의를 확인하고, 업로드 뒤 철회됐으면 AI로 보내지 않고 `failed`(`consent_withdrawn`)로 둔다.
+- `POST /records/{id}/review` (manager): 확정 기록만(기관 담당자는 확정 전 기록을 볼 수 없으므로 404), 이미 서명했으면 409.
 
 ### 보호자 (guardian)
 - `GET /guardian/home`: `{recipient_name, categories, records: [{visited_on, items: [{category, content}], checks: [{followup_content, result}]}]}`.
@@ -220,8 +222,8 @@
 - 배정 해제 직후 확정 전 기록·음성·확정 404.
 - 동의: 철회 후 업로드 409·요약 409, 열람은 유지, 보호자 403.
 - 보호자: 열람 범위 밖 분류·근거·전사문이 응답에 없음(응답 JSON 문자열 검사), 연결 비활성화·계정 비활성화 즉시 차단.
-- 서명: 확정 전 409, 두 번 409, 요양보호사 403.
-- 마이그레이션: 기존 데이터가 있는 상태에서 upgrade → 기존 사용자가 기존 수급자를 볼 수 있음, downgrade 왕복.
+- 서명: 두 번 409, 요양보호사 403, 확정 전 기록 404(접근 표).
+- 마이그레이션: 개발 DB(기존 사용자 16명)에서 upgrade → 기존 데이터 센터·배정·동의 생성 확인, downgrade·upgrade 왕복, `alembic check`. (자동 테스트는 세션 단위로 최신 스키마를 쓰므로 수동 확인)
 - E2E: (1) 센터 만들기 → 수급자 추가·동의 기록 → 요양보호사 초대 → 요양보호사 가입·배정 → 녹음·확정 → 기관 담당자 확인 서명. (2) 보호자 초대 → 보호자 가입 → 열람 범위만 보임 → 연결 해제 → 차단. 기존 E2E는 시드 계정이나 헬퍼로 센터·배정을 만든 뒤 시작하게 바꾼다.
 
 ## 8. 시드
