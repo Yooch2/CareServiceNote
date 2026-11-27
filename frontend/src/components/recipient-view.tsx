@@ -7,6 +7,8 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { STATUS_LABEL } from "@/lib/labels";
 import type { Recipient, RecordStatus, RecordSummary } from "@/lib/types";
+import { HandoverPanel } from "./handover-panel";
+import { RecordSearch } from "./record-search";
 import { Badge, Loading, Notice, PageTitle, type Tone } from "./ui";
 
 export function statusTone(status: RecordStatus): Tone {
@@ -45,7 +47,7 @@ export function RecipientView() {
   return (
     <>
       <BackLink href="/">수급자 목록</BackLink>
-      <PageTitle>{recipient.name}</PageTitle>
+      <PageTitle sub="방문 전 확인">{recipient.name}</PageTitle>
       <Link
         href={`/recipients/${id}/record`}
         className="flex min-h-16 items-center justify-center gap-3 rounded-xl bg-pine text-xl font-semibold text-white hover:bg-pine-dark"
@@ -53,7 +55,13 @@ export function RecipientView() {
         <span aria-hidden className="size-3.5 rounded-full bg-white" />
         오늘 방문 기록하기
       </Link>
-      <h2 className="mt-8 mb-2 font-semibold text-muted">지난 기록</h2>
+      <div className="mt-6">
+        <HandoverPanel recipientId={id} />
+      </div>
+      <div className="mt-8">
+        <RecordSearch recipientId={id} />
+      </div>
+      <h2 className="mt-8 mb-2 text-lg font-bold">지난 기록</h2>
       {records.length === 0 ? (
         <p className="text-muted">아직 기록이 없습니다.</p>
       ) : (
