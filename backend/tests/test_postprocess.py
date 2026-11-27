@@ -197,3 +197,16 @@ def test_trailing_punctuation_in_evidence_is_ignored() -> None:
     items = build_draft(TRANSCRIPT, classification)["items"]
     assert [i["evidence_found"] for i in items] == [True, True]
     assert [i["segment_index"] for i in items] == [0, 1]
+
+
+def test_null_items_are_dropped() -> None:
+    classification = Classification(
+        items=[
+            _item("무릎이 아프다고"),
+            DraftItem.model_validate({**_item("null").model_dump(), "content": "null"}),
+        ],
+        mentioned_topics=[],
+    )
+    assert [i["evidence"] for i in build_draft(TRANSCRIPT, classification)["items"]] == [
+        "무릎이 아프다고"
+    ]

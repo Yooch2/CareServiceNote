@@ -54,6 +54,8 @@ def build_draft(
     items: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
     for item in classification.items:
+        if item.content.strip().lower() in ("", "null", "none"):
+            continue  # 작은 모델이 빈 자리를 "null" 문자열로 채운 항목
         evidence = _norm(item.evidence)
         key = (item.category, _norm(item.content), evidence)
         if key in seen:  # 작은 모델이 같은 항목을 두 번 내는 경우

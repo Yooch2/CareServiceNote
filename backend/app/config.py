@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     ai_provider: Literal["fake", "local", "gemini"] = "fake"
     mlx_whisper_model: str = "mlx-community/whisper-large-v3-turbo"
     ollama_url: str = "http://localhost:11434"
+    ollama_num_predict: int = 2048  # 분류 출력 최대 토큰 (반복 생성 방지)
     ollama_model: str = "qwen2.5:7b"
     ollama_num_ctx: int = 8192
     gemini_api_key: str = ""

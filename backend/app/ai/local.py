@@ -9,6 +9,7 @@ from app.ai.errors import PermanentAIError, TransientAIError
 from app.ai.prompts import CLASSIFY_SYSTEM, classify_user_message
 from app.ai.structured import parse_with_retry
 from app.ai.types import Classification, OpenFollowup, Segment, Transcript
+from app.config import settings
 
 
 class LocalTranscriber:
@@ -63,7 +64,12 @@ class OllamaClassifier:
                     "model": self.model,
                     "stream": False,
                     "format": schema.model_json_schema(),
-                    "options": {"num_ctx": self.num_ctx, "temperature": 0},
+                    # 작은 모델이 같은 항목을 끝없이 반복하는 경우가 있어 출력 길이를 막는다
+                    "options": {
+                        "num_ctx": self.num_ctx,
+                        "temperature": 0,
+                        "num_predict": settings.ollama_num_predict,
+                    },
                     "messages": [
                         {"role": "system", "content": system},
                         {"role": "user", "content": user},
@@ -76,4 +82,8 @@ class OllamaClassifier:
             raise TransientAIError(f"llm_http_{res.status_code}")
         if res.status_code >= 400:
             raise PermanentAIError(f"llm_http_{res.status_code}")
-        return str(res.json()["message"]["content"])
+        body = res.json()
+        if body.get("done_reason") == "length":
+            # temperature 0이라 다시 해도 같은 출력이 나온다 → 바로 실패시켜 직접 작성으로 넘긴다
+            raise PermanentAIError("llm_output_too_long")
+        return str(body["message"]["content"])
