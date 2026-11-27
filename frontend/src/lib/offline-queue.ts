@@ -52,3 +52,9 @@ export async function removePending(id: string): Promise<void> {
 export async function clearPending(userId: string): Promise<void> {
   for (const u of await listPending(userId)) await removePending(u.id);
 }
+
+/** 같은 기기에서 다른 사용자가 로그인하면 이전 사용자의 대기 녹음을 지운다 (그 사용자는 보낼 수 없고 남겨 둘 이유가 없음). */
+export async function clearOtherUsers(userId: string): Promise<void> {
+  const all = await run<PendingUpload[]>("readonly", (s) => s.getAll());
+  for (const u of all) if (u.userId !== userId) await removePending(u.id);
+}
