@@ -7,6 +7,8 @@ export default defineConfig({
   testDir: "e2e",
   timeout: 60_000,
   workers: 1,
+  // CI에서는 실패했을 때 올릴 HTML 보고서도 만든다
+  reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   globalSetup: "./e2e/global-setup.ts",
   use: { baseURL: "http://localhost:3100", ...devices["Pixel 7"] },
   webServer: [

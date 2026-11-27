@@ -53,6 +53,52 @@ jobs:
       - run: pnpm test
       - run: pnpm build
 
+  # 브라우저로 실제 흐름을 확인한다 (fake AI 백엔드·워커와 개발 서버를 Playwright가 띄움)
+  e2e:
+    runs-on: ubuntu-latest
+    env:
+      JWT_SECRET: ci-only-secret-not-used-anywhere-else-0123
+      STORAGE_KEY: dGVzdC1rZXktbm90LWZvci1wcm9kdWN0aW9uLTAxMjM= # 테스트 전용 Fernet 키
+      AI_PROVIDER: fake
+    services:
+      db:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: csn
+          POSTGRES_PASSWORD: csn
+          POSTGRES_DB: csn
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U csn -d csn"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: 백엔드 준비
+        working-directory: backend
+        run: uv sync --locked && uv run alembic upgrade head
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: 프런트 준비
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile && pnpm exec playwright install --with-deps chromium
+      - name: E2E (접근성 검사 포함)
+        working-directory: frontend
+        run: pnpm exec playwright test
+      - name: 실패하면 보고서 올리기
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report
+          retention-days: 7
+
   # 배포 이미지가 깨지지 않았는지만 확인한다 (올리지는 않음)
   docker:
     runs-on: ubuntu-latest
