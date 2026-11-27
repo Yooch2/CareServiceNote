@@ -60,6 +60,19 @@ pnpm dev                      # /api/* 요청은 BACKEND_URL(기본 http://127.0
 | `local` | mlx-whisper | Ollama | macOS, `uv sync --group local`, `ollama pull qwen2.5:7b` |
 | `gemini` | Gemini | Gemini | Google AI Studio 무료 등급 키를 `GEMINI_API_KEY`에 (기본 모델 `gemini-3.5-flash-lite`, 무료 등급에서 음성 입력 지원) |
 
+## 배포
+
+서버 한 대에 Docker Compose로 DB·API·워커·화면·Caddy(자동 HTTPS)를 함께 띄웁니다. 순서와 백업·복구는 [deploy/DEPLOY.md](deploy/DEPLOY.md).
+
+```bash
+cd deploy && cp .env.example .env   # DOMAIN, 비밀값, GEMINI_API_KEY 채우기
+docker compose up -d --build
+```
+
+- `ENV=production`이면 위험한 설정(HTTP 쿠키, 짧은 JWT 비밀값, 암호화 키 없음 등)으로는 시작하지 않습니다.
+- `/api`는 Caddy가 API로 바로 보내고(업로드가 화면 서버를 거치지 않음), DB·API 포트는 밖으로 열지 않습니다.
+- 로그인·초대 코드 시도 횟수 제한은 Caddy가 넘겨주는 클라이언트 IP 기준이고, 아이디별 상한을 넘으면 전에 로그인했던 기기만 통과합니다.
+
 ## 테스트
 
 ```bash
