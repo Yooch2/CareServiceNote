@@ -95,7 +95,7 @@ export function ConfirmedView({ record, onChange }: { record: VisitRecord; onCha
                             <span className="sr-only">근거 </span>“{item.evidence}”
                           </p>
                         )}
-                        <div className="mt-2 flex flex-wrap gap-1.5">
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
                           {item.risk_tag && <Badge tone="risk">{RISK_LABEL[item.risk_tag]} 주의</Badge>}
                           {item.body_part && <Badge>{BODY_PART_LABEL[item.body_part]} 불편</Badge>}
                           <Badge>{ORIGIN_LABEL[item.origin]}</Badge>
