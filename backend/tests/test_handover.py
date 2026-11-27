@@ -18,6 +18,12 @@ TODAY = date.today()
 
 
 @pytest.fixture
+def other_client() -> Iterator[TestClient]:
+    with TestClient(app) as c:
+        yield c
+
+
+@pytest.fixture
 def llm() -> Iterator[FakeClassifier]:
     fake = FakeClassifier()
     app.dependency_overrides[get_llm] = lambda: fake
@@ -158,6 +164,23 @@ def test_summary_errors(
     llm.failures.append(PermanentAIError("invalid_ai_output"))
     assert client.post(f"/recipients/{rid}/handover/summary").status_code == 502
 
-    monkeypatch.setattr(settings, "daily_summaries_per_user", 1)
+    # 실패한 두 번도 한도에 들어간다 (AI를 부른 시도는 모두 셈)
+    monkeypatch.setattr(settings, "daily_summaries_per_user", 3)
     assert client.post(f"/recipients/{rid}/handover/summary").status_code == 200
     assert client.post(f"/recipients/{rid}/handover/summary").status_code == 429
+    assert llm.calls == 3
+
+
+def test_summary_total_cap(
+    client: TestClient,
+    other_client: TestClient,
+    db: Session,
+    llm: FakeClassifier,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rid = _recipient(client)
+    _history(db, rid)
+    monkeypatch.setattr(settings, "daily_summaries_total", 1)
+    assert client.post(f"/recipients/{rid}/handover/summary").status_code == 200
+    signup(other_client, login_id="carer99")
+    assert other_client.post(f"/recipients/{rid}/handover/summary").status_code == 429

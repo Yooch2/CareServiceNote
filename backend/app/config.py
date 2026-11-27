@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     daily_records_per_user: int = 20
     daily_records_total: int = 200
     daily_summaries_per_user: int = 20
+    daily_summaries_total: int = 200
 
     ai_provider: Literal["fake", "local", "gemini"] = "fake"
     mlx_whisper_model: str = "mlx-community/whisper-large-v3-turbo"

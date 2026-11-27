@@ -199,3 +199,15 @@ class HandoverSummary(Base):
     covered_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AiUsage(Base):
+    """API 요청 안에서 부르는 AI 호출 기록 (하루 한도용). 실패한 시도도 센다."""
+
+    __tablename__ = "ai_usage"
+    __table_args__ = (Index("ix_ai_usage_kind_created", "kind", "created_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    kind: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
