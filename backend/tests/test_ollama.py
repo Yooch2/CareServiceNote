@@ -95,4 +95,4 @@ def test_runaway_output_fails_fast() -> None:
     assert e.value.code == "llm_output_too_long"
     assert len(calls) == 1
     options = calls[0]["options"]
-    assert isinstance(options, dict) and options["num_predict"] == 2048
+    assert isinstance(options, dict) and options["num_predict"] == 1024
