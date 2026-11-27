@@ -1,15 +1,12 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { IBM_Plex_Sans_KR } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const plex = IBM_Plex_Sans_KR({
+  variable: "--font-plex",
+  weight: ["400", "500", "600", "700"],
   subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+  preload: false,
 });
 
 export const metadata: Metadata = {
@@ -17,13 +14,14 @@ export const metadata: Metadata = {
   description: "방문요양 음성 기록을 정리해 다음 돌봄으로 잇는 서비스",
 };
 
+export const viewport: Viewport = {
+  themeColor: "#f3f6f4",
+};
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html
-      lang="ko"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="min-h-full flex flex-col">{children}</body>
+    <html lang="ko" className={`${plex.variable} h-full antialiased`}>
+      <body className="flex min-h-full flex-col text-[17px] leading-relaxed">{children}</body>
     </html>
   );
 }
